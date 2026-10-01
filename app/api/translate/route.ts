@@ -6,8 +6,8 @@ import {
   type LanguageId,
 } from "@/lib/languages";
 import {
-  isCredentialError,
   listModelChoices,
+  nextModelIndex,
   type ProviderName,
 } from "@/lib/provider";
 import { generateText } from "ai";
@@ -71,9 +71,11 @@ export async function POST(request: Request) {
   }
 
   let lastError: unknown;
+  let index = 0;
 
-  for (let index = 0; index < choices.length; index++) {
+  while (index < choices.length) {
     const choice = choices[index];
+    if (!choice) break;
 
     try {
       const result = await generateText({
@@ -99,14 +101,14 @@ export async function POST(request: Request) {
       return Response.json(payload);
     } catch (error) {
       lastError = error;
-      const anotherChoice = index < choices.length - 1;
       console.error(
         `Translation with ${choice.provider} (${choice.modelId}) failed`,
         error,
       );
 
-      if (anotherChoice && isCredentialError(error)) continue;
-      break;
+      const next = nextModelIndex(choices, index, error);
+      if (next === null) break;
+      index = next;
     }
   }
 
