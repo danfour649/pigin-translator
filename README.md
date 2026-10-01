@@ -75,7 +75,7 @@ If the project does not use AI Gateway, set one of `AI_GATEWAY_API_KEY`, `OPENAI
 
 The microphone listens for English (`en-US`), which is the source language.
 
-Playback asks the OS for a matching voice:
+When Azure Speech is not configured, playback asks the OS for a matching voice:
 
 - **Naijá** prefers `en-NG` or a voice whose name mentions Nigeria. There is no standard Naijá voice, so a general English voice is the usual fallback. The words are still Naijá; the accent may not be.
 - **Yorùbá** prefers a `yo` voice. Almost no desktop browser ships one. Without it, Pigin still speaks, shows a warning, and the tones will be wrong.
@@ -84,17 +84,31 @@ Voices load asynchronously. The first Speak click waits briefly for the browser�
 
 ## Optional cloud voices
 
-The default path does not call a cloud text-to-speech API. Add one only if you need a real Yorùbá voice or a Nigerian English voice the browser does not have. Keep that provider’s key on the server and return audio to the page. Do not call the provider from the browser.
+Azure Speech is built in. When both `AZURE_SPEECH_KEY` and `AZURE_SPEECH_REGION` are set, Speak uses those neural voices on the server and plays the MP3 with `new Audio()`. The key is never sent to the browser and must not use a `NEXT_PUBLIC_` prefix.
 
-A server route can accept `{ text, language }` and respond with `audio/mpeg` (or another audio type). The page would play it with `new Audio(objectUrl)` instead of `speechSynthesis`.
+| Language | Locale | Voice |
+| --- | --- | --- |
+| Naijá | `en-NG` | `en-NG-EzinneNeural` |
+| Yorùbá | `yo-NG` | `yo-NG-AdeolaNeural` |
 
-Providers that cover these languages today:
+`en-NG-EzinneNeural` is the current female English (Nigeria) neural voice in [Azure’s language and voice list](https://learn.microsoft.com/en-us/azure/ai-services/speech-service/language-support). `en-NG-AbeoNeural` is the male voice in that same table; Pigin uses Ezinne. `yo-NG-AdeolaNeural` is the Yoruba (Nigeria) neural voice for `yo-NG`. That locale is not in the public table snapshot checked with this change, so if a region rejects Adeola the page falls back to the browser voice and shows the existing warning.
 
-- **Google Cloud Text-to-Speech** has `yo-NG` voices for Yorùbá and `en-NG` voices that suit Naijá.
-- **Microsoft Azure Speech** has `yo-NG` and `en-NG` neural voices.
-- **OpenAI speech** and **ElevenLabs** can read the text aloud. Treat them as accented English unless the voice is specifically Yorùbá or Nigerian; they are a better fit for Naijá than for tone-marked Yorùbá.
+Leave both variables unset and Speak stays on the Web Speech API, including that Yorùbá fallback warning.
 
-Whichever you choose, follow that provider’s current model and voice names in their docs. The translation route in this repo is separate and does not need a speech key.
+### Configure Azure
+
+1. In the Azure portal, create a Speech resource. The F0 free tier is enough for this app: about 500,000 neural characters per month.
+2. On the resource’s Keys and Endpoint page, copy **Key 1** and the **region** (for example `eastus`).
+3. Locally, put them in `.env.local`:
+
+```bash
+AZURE_SPEECH_KEY=your-speech-key
+AZURE_SPEECH_REGION=eastus
+```
+
+4. On Vercel, open the project → Settings → Environment Variables. Add `AZURE_SPEECH_KEY` and `AZURE_SPEECH_REGION` for Production (and Preview, if you want it there). Redeploy. Do not mark them as exposed to the browser.
+
+`GET /api/speak` returns `{ "configured": true }` or `false`, plus the voice names. It does not return the key. `POST /api/speak` with `{ "text", "language" }` returns `audio/mpeg` when Azure is configured. `language` is `naija` or `yoruba`, and `text` has the same 4000-character cap as translation. No other cloud voice provider is wired up.
 
 ## Scripts
 
@@ -127,3 +141,5 @@ npm run lint   # eslint
 `provider` is `ai-gateway`, `openai`, or `anthropic`.
 
 `GET /api/translate` reports whether a credential is configured. It does not echo secrets.
+
+`POST /api/speak` returns `audio/mpeg` when Azure Speech is configured, and `503` when it is not. `GET /api/speak` reports that status without returning the key.

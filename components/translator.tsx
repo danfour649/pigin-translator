@@ -41,6 +41,10 @@ export function Translator() {
   const [voiceNote, setVoiceNote] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [ready, setReady] = useState<ReadyState | null>(null);
+  const [azureReady, setAzureReady] = useState(false);
+  const [azureVoices, setAzureVoices] = useState<
+    Partial<Record<LanguageId, string>>
+  >({});
   const canListen = useSyncExternalStore(
     subscribeBrowser,
     recognitionSupported,
@@ -54,11 +58,19 @@ export function Translator() {
 
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const copyTimer = useRef<number | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioUrlRef = useRef<string | null>(null);
+  const speakGen = useRef(0);
+  const azureState = useRef<{ known: boolean; ready: boolean }>({
+    known: false,
+    ready: false,
+  });
 
   useEffect(() => {
     return () => {
       recognitionRef.current?.abort();
-      if (synthesisSupported()) window.speechSynthesis.cancel();
+      speakGen.current += 1;
+      haltPlayback(audioRef, audioUrlRef);
       if (copyTimer.current) window.clearTimeout(copyTimer.current);
     };
   }, []);
@@ -77,6 +89,36 @@ export function Translator() {
           return;
         }
         setReady({ ready: false, provider: null });
+      });
+
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    fetch("/api/speak", { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Speech status check failed");
+        return (await response.json()) as {
+          configured?: boolean;
+          voices?: Partial<Record<LanguageId, string>>;
+        };
+      })
+      .then((data) => {
+        const configured = Boolean(data.configured);
+        azureState.current = { known: true, ready: configured };
+        setAzureReady(configured);
+        setAzureVoices(data.voices ?? {});
+      })
+      .catch((fetchError: unknown) => {
+        if (
+          fetchError instanceof DOMException &&
+          fetchError.name === "AbortError"
+        ) {
+          return;
+        }
+        setAzureReady(false);
       });
 
     return () => controller.abort();
@@ -181,22 +223,132 @@ export function Translator() {
     setPhase((current) => (current === "listening" ? "idle" : current));
   }
 
+  async function loadAzureStatus() {
+    try {
+      const response = await fetch("/api/speak");
+      if (!response.ok) throw new Error("Speech status check failed");
+      const data = (await response.json()) as {
+        configured?: boolean;
+        voices?: Partial<Record<LanguageId, string>>;
+      };
+      const configured = Boolean(data.configured);
+      azureState.current = { known: true, ready: configured };
+      setAzureReady(configured);
+      setAzureVoices(data.voices ?? {});
+      return configured;
+    } catch {
+      azureState.current = { known: true, ready: false };
+      setAzureReady(false);
+      return false;
+    }
+  }
+
   async function onSpeak() {
-    if (!translation || !canSpeak) return;
+    if (!translation || translating) return;
+
+    const generation = ++speakGen.current;
+    haltPlayback(audioRef, audioUrlRef);
+    setError(null);
+    setPhase("speaking");
+
+    const useAzure = azureState.current.known
+      ? azureState.current.ready
+      : await loadAzureStatus();
+    if (speakGen.current !== generation) return;
+
+    if (!useAzure && !canSpeak) {
+      setPhase("idle");
+      setVoiceNote("This browser could not play the translation.");
+      return;
+    }
+
+    if (useAzure) {
+      const played = await speakWithAzure(
+        translation,
+        translatedLanguage,
+        generation,
+      );
+      if (played || speakGen.current !== generation) return;
+    }
+
+    if (!canSpeak) {
+      setPhase("idle");
+      setVoiceNote("This browser could not play the translation.");
+      return;
+    }
+
+    await speakWithBrowser(translation, translatedLanguage, generation);
+  }
+
+  async function speakWithAzure(
+    spoken: string,
+    spokenLanguage: LanguageId,
+    generation: number,
+  ) {
+    try {
+      const response = await fetch("/api/speak", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: spoken, language: spokenLanguage }),
+      });
+      if (speakGen.current !== generation) return true;
+      const contentType = response.headers.get("content-type") ?? "";
+      if (!response.ok || !contentType.startsWith("audio/")) return false;
+
+      const url = URL.createObjectURL(await response.blob());
+      if (speakGen.current !== generation) {
+        URL.revokeObjectURL(url);
+        return true;
+      }
+
+      audioUrlRef.current = url;
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      const voiceName =
+        azureVoices[spokenLanguage] ??
+        (spokenLanguage === "yoruba"
+          ? "yo-NG-AdeolaNeural"
+          : "en-NG-EzinneNeural");
+      setVoiceNote(`Speaking with Azure ${voiceName}.`);
+      audio.onended = () => {
+        if (speakGen.current !== generation) return;
+        setPhase("idle");
+        releaseAudioUrl(audioUrlRef, url);
+      };
+      await audio.play();
+      return true;
+    } catch {
+      if (speakGen.current !== generation) return true;
+      haltPlayback(audioRef, audioUrlRef);
+      return false;
+    }
+  }
+
+  async function speakWithBrowser(
+    spoken: string,
+    spokenLanguage: LanguageId,
+    generation: number,
+  ) {
+    if (!synthesisSupported() || speakGen.current !== generation) return;
 
     window.speechSynthesis.cancel();
     const voices = await loadVoices();
-    const choice = chooseVoice(translatedLanguage, voices);
-    const utterance = new SpeechSynthesisUtterance(translation);
+    if (speakGen.current !== generation) return;
+
+    const choice = chooseVoice(spokenLanguage, voices);
+    const utterance = new SpeechSynthesisUtterance(spoken);
     if (choice.voice) {
       utterance.voice = choice.voice;
       utterance.lang = choice.voice.lang;
     } else {
-      utterance.lang = translatedLanguage === "yoruba" ? "yo-NG" : "en-NG";
+      utterance.lang = spokenLanguage === "yoruba" ? "yo-NG" : "en-NG";
     }
     utterance.rate = 0.95;
-    utterance.onend = () => setPhase("idle");
+    utterance.onend = () => {
+      if (speakGen.current === generation) setPhase("idle");
+    };
     utterance.onerror = () => {
+      if (speakGen.current !== generation) return;
       setPhase("idle");
       setVoiceNote("This browser could not play the translation.");
     };
@@ -207,7 +359,8 @@ export function Translator() {
   }
 
   function stopSpeaking() {
-    if (synthesisSupported()) window.speechSynthesis.cancel();
+    speakGen.current += 1;
+    haltPlayback(audioRef, audioUrlRef);
     setPhase((current) => (current === "speaking" ? "idle" : current));
   }
 
@@ -226,6 +379,7 @@ export function Translator() {
   const providerLabel = provider ? PROVIDER_LABELS[provider] ?? provider : null;
   const listening = phase === "listening";
   const translating = phase === "translating";
+  const canPlay = canSpeak || azureReady;
 
   return (
     <div className="flex flex-col gap-5">
@@ -363,7 +517,7 @@ export function Translator() {
           <button
             type="button"
             onClick={() => void onSpeak()}
-            disabled={!translation || !canSpeak || translating}
+            disabled={!translation || !canPlay || translating}
             className="rounded-full bg-green-ink px-4 py-2 text-sm font-semibold text-card hover:bg-green focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green disabled:cursor-not-allowed disabled:opacity-40"
           >
             {phase === "speaking" ? "Speaking…" : "Speak"}
@@ -403,17 +557,42 @@ export function Translator() {
       <section className="px-1 text-sm leading-relaxed text-muted">
         <h2 className="font-semibold text-ink">Browser speech</h2>
         <p className="mt-1">
-          Listening and speaking use the Web Speech API in this browser. Chrome
-          and Edge can do both. Safari usually speaks but often cannot listen.
-          Firefox support varies, and iOS is the most limited. Pigin does not
-          upload microphone audio; recognition, when the browser offers it, is
-          handled by the browser itself. Few systems include a Yorùbá voice, and
-          none include a dedicated Naijá voice, so playback may fall back to
-          English. Optional cloud voices are documented in the README.
+          The microphone uses the Web Speech API in this browser. Chrome and
+          Edge can listen. Safari often cannot, Firefox support varies, and iOS
+          is the most limited. Pigin does not upload microphone audio. When
+          Azure Speech is configured on the server, Speak plays a neural
+          Nigerian voice. Otherwise Speak uses this browser, which rarely has a
+          Yorùbá voice and has no dedicated Naijá voice. See the README.
         </p>
       </section>
     </div>
   );
+}
+
+function haltPlayback(
+  audioRef: { current: HTMLAudioElement | null },
+  audioUrlRef: { current: string | null },
+) {
+  if (synthesisSupported()) window.speechSynthesis.cancel();
+  const audio = audioRef.current;
+  if (audio) {
+    audio.pause();
+    audio.removeAttribute("src");
+    audio.load();
+    audioRef.current = null;
+  }
+  if (audioUrlRef.current) {
+    URL.revokeObjectURL(audioUrlRef.current);
+    audioUrlRef.current = null;
+  }
+}
+
+function releaseAudioUrl(
+  audioUrlRef: { current: string | null },
+  url: string,
+) {
+  URL.revokeObjectURL(url);
+  if (audioUrlRef.current === url) audioUrlRef.current = null;
 }
 
 function subscribeBrowser() {
