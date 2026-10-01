@@ -1,0 +1,56 @@
+@import "tailwindcss";
+
+:root {
+  --paper: #f4efe4;
+  --ink: #1c1612;
+  --card: #fffaf3;
+  --line: #e4d7c4;
+  --green: #0e6b4f;
+  --green-ink: #073b2c;
+  --gold: #8a5a12;
+  --clay: #9a3412;
+  --muted: #5e5348;
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-ink: var(--ink);
+  --color-card: var(--card);
+  --color-line: var(--line);
+  --color-green: var(--green);
+  --color-green-ink: var(--green-ink);
+  --color-gold: var(--gold);
+  --color-clay: var(--clay);
+  --color-muted: var(--muted);
+  --font-sans: var(--font-noto);
+  --font-display: var(--font-fraunces);
+}
+
+body {
+  background:
+    radial-gradient(900px 420px at 0% -10%, rgb(14 107 79 / 0.1), transparent 55%),
+    radial-gradient(720px 380px at 100% 0%, rgb(138 90 18 / 0.14), transparent 48%),
+    var(--paper);
+  color: var(--ink);
+  font-family: var(--font-noto), "Noto Sans", sans-serif;
+}
+
+@keyframes pigin-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgb(154 52 18 / 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgb(154 52 18 / 0);
+  }
+}
+
+.listening {
+  animation: pigin-pulse 1.4s ease-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .listening {
+    animation: none;
+  }
+}
