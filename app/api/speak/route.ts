@@ -5,22 +5,35 @@ import {
   parseSpeakBody,
   synthesizeAzureSpeech,
 } from "@/lib/azure-speech";
+import { chooseSpeakBackend } from "@/lib/speak-cloud";
 import {
   clientAddress,
   decideSpeakAccess,
   speakCounterStore,
 } from "@/lib/speak-guard";
+import {
+  SPITCH_YORUBA_VOICE,
+  SpitchSpeechError,
+  spitchSpeechConfigured,
+  synthesizeSpitchSpeech,
+} from "@/lib/spitch-speech";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 export function GET() {
+  const azure = azureSpeechConfigured();
+  const spitch = spitchSpeechConfigured();
   return Response.json({
-    configured: azureSpeechConfigured(),
+    configured: azure || spitch,
+    providers: {
+      naija: azure ? "azure" : null,
+      yoruba: spitch ? "spitch" : null,
+    },
     voices: {
       naija: AZURE_VOICES.naija.name,
-      yoruba: AZURE_VOICES.yoruba.name,
+      yoruba: SPITCH_YORUBA_VOICE,
     },
   });
 }
@@ -42,9 +55,13 @@ export async function POST(request: Request) {
     return Response.json({ error: parsed.message }, { status: parsed.status });
   }
 
-  if (!azureSpeechConfigured()) {
+  const backend = chooseSpeakBackend(parsed.language, {
+    azure: azureSpeechConfigured(),
+    spitch: spitchSpeechConfigured(),
+  });
+  if (!backend) {
     return Response.json(
-      { error: "Azure Speech is not configured." },
+      { error: "Cloud speech is not configured." },
       { status: 503 },
     );
   }
@@ -66,7 +83,10 @@ export async function POST(request: Request) {
   }
 
   try {
-    const audio = await synthesizeAzureSpeech(parsed.text, parsed.language);
+    const audio =
+      backend === "spitch"
+        ? await synthesizeSpitchSpeech(parsed.text)
+        : await synthesizeAzureSpeech(parsed.text, parsed.language);
     return new Response(audio, {
       headers: {
         "Content-Type": "audio/mpeg",
@@ -74,11 +94,12 @@ export async function POST(request: Request) {
       },
     });
   } catch (error) {
-    const status = error instanceof AzureSpeechError ? error.status : 502;
-    const message =
-      error instanceof AzureSpeechError
-        ? error.message
-        : "Azure Speech could not synthesize audio.";
-    return Response.json({ error: message }, { status });
+    if (error instanceof AzureSpeechError || error instanceof SpitchSpeechError) {
+      return Response.json({ error: error.message }, { status: error.status });
+    }
+    return Response.json(
+      { error: "Cloud speech could not synthesize audio." },
+      { status: 502 },
+    );
   }
 }

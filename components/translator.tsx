@@ -306,10 +306,9 @@ export function Translator() {
       audioRef.current = audio;
       const voiceName =
         azureVoices[spokenLanguage] ??
-        (spokenLanguage === "yoruba"
-          ? "yo-NG-AdeolaNeural"
-          : "en-NG-EzinneNeural");
-      setVoiceNote(`Speaking with Azure ${voiceName}.`);
+        (spokenLanguage === "yoruba" ? "sade" : "en-NG-EzinneNeural");
+      const providerLabel = spokenLanguage === "yoruba" ? "Spitch" : "Azure";
+      setVoiceNote(`Speaking with ${providerLabel} ${voiceName}.`);
       audio.onended = () => {
         if (speakGen.current !== generation) return;
         setPhase("idle");
@@ -560,9 +559,10 @@ export function Translator() {
           The microphone uses the Web Speech API in this browser. Chrome and
           Edge can listen. Safari often cannot, Firefox support varies, and iOS
           is the most limited. Pigin does not upload microphone audio. When
-          Azure Speech is configured on the server, Speak plays a neural
-          Nigerian voice. Otherwise Speak uses this browser, which rarely has a
-          Yorùbá voice and has no dedicated Naijá voice. See the README.
+          Spitch is configured, Yorùbá Speak plays that voice. When Azure
+          Speech is configured, Naijá Speak plays that voice. Otherwise Speak
+          uses this browser, which rarely has a Yorùbá voice and has no
+          dedicated Naijá voice. See the README.
         </p>
       </section>
     </div>
