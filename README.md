@@ -84,16 +84,14 @@ Voices load asynchronously. The first Speak click waits briefly for the browser�
 
 ## Optional cloud voices
 
-Azure Speech is built in. When both `AZURE_SPEECH_KEY` and `AZURE_SPEECH_REGION` are set, Speak uses those neural voices on the server and plays the MP3 with `new Audio()`. The key is never sent to the browser and must not use a `NEXT_PUBLIC_` prefix.
+Speak can use a cloud voice per language. The browser plays the MP3 with `new Audio()`. Keys stay on the server and must not use a `NEXT_PUBLIC_` prefix.
 
-| Language | Locale | Voice |
-| --- | --- | --- |
-| Naijá | `en-NG` | `en-NG-EzinneNeural` |
-| Yorùbá | `yo-NG` | `yo-NG-AdeolaNeural` |
+| Language | Provider | Voice | Env |
+| --- | --- | --- | --- |
+| Naijá | Azure Speech | `en-NG-EzinneNeural` | `AZURE_SPEECH_KEY` and `AZURE_SPEECH_REGION` |
+| Yorùbá | [Spitch](https://docs.spitch.app/features/speech) | `sade` | `SPITCH_API_KEY` |
 
-`en-NG-EzinneNeural` is the current female English (Nigeria) neural voice in [Azure’s language and voice list](https://learn.microsoft.com/en-us/azure/ai-services/speech-service/language-support). `en-NG-AbeoNeural` is the male voice in that same table; Pigin uses Ezinne. `yo-NG-AdeolaNeural` is the Yoruba (Nigeria) neural voice for `yo-NG`. That locale is not in the public table snapshot checked with this change, so if a region rejects Adeola the page falls back to the browser voice and shows the existing warning.
-
-Leave both variables unset and Speak stays on the Web Speech API, including that Yorùbá fallback warning.
+`en-NG-EzinneNeural` is the current female English (Nigeria) neural voice in [Azure’s language and voice list](https://learn.microsoft.com/en-us/azure/ai-services/speech-service/language-support). Yorùbá does not call Azure. Spitch’s Yoruba voices are `sade` and `funmi` (feminine) and `segun` and `femi` (masculine); Pigin uses `sade`. If that language’s provider is unset or returns an error, Speak uses the browser voice and the existing warning. No new error is shown.
 
 ### Configure Azure
 
@@ -108,11 +106,15 @@ AZURE_SPEECH_REGION=eastus
 
 4. On Vercel, open the project → Settings → Environment Variables. Add `AZURE_SPEECH_KEY` and `AZURE_SPEECH_REGION` for Production (and Preview, if you want it there). Redeploy. Do not mark them as exposed to the browser.
 
-`GET /api/speak` returns `{ "configured": true }` or `false`, plus the voice names. It does not return the key. `POST /api/speak` with `{ "text", "language" }` returns `audio/mpeg` when Azure is configured and the request is allowed. `language` is `naija` or `yoruba`, and `text` has the same 4000-character cap as translation. No other cloud voice provider is wired up.
+### Configure Spitch
 
-`POST /api/speak` only calls Azure for this site, and only inside a small budget. The site check uses the `Origin` header, or `Referer` when `Origin` is absent. Allowed hosts are `pigin-translator.vercel.app`, the deployment’s `VERCEL_URL`, `VERCEL_BRANCH_URL`, and `VERCEL_PROJECT_PRODUCTION_URL`, plus `localhost` / `127.0.0.1` / `::1` when `VERCEL` is unset. That header check is not a lock: a non-browser client can forge it. A request with no `Origin` or `Referer`, or from any other host, gets `403` and does not call Azure.
+Yorùbá Speak calls `POST https://api.spitch.app/v1/speech` with `language` `yo`, `voice` `sade`, and `format` `mp3`. Set `SPITCH_API_KEY` in `.env.local` or as a sensitive Vercel env for Production, Preview, and Development. Do not expose it to the browser.
 
-Allowed requests are then counted in Vercel Runtime Cache (process memory off Vercel). The cache is per region and can evict entries, so the numbers are a cap, not a perfect ledger. One visitor, taken from `x-real-ip` or otherwise `x-forwarded-for`, may make 8 requests per 10 minutes, 30 requests per 24 hours, and 8,000 characters per 24 hours. Everyone sharing that region and deployment environment may make 80 requests and 15,000 characters per 24 hours. Past either cap the route returns `429` and does not call Azure. The page treats `403` and `429` like any other Azure failure and speaks with the browser voice.
+`GET /api/speak` returns `{ "configured": true }` or `false`, which providers are set (`providers.naija` is `azure` or `null`, `providers.yoruba` is `spitch` or `null`), and the voice names. It does not return either key. `POST /api/speak` with `{ "text", "language" }` returns `audio/mpeg` when that language’s provider is configured and the request is allowed. `language` is `naija` or `yoruba`, and `text` has the same 4000-character cap as translation.
+
+`POST /api/speak` only calls Spitch or Azure for this site, and only inside a small budget. The site check uses the `Origin` header, or `Referer` when `Origin` is absent. Allowed hosts are `pigin-translator.vercel.app`, the deployment’s `VERCEL_URL`, `VERCEL_BRANCH_URL`, and `VERCEL_PROJECT_PRODUCTION_URL`, plus `localhost` / `127.0.0.1` / `::1` when `VERCEL` is unset. That header check is not a lock: a non-browser client can forge it. A request with no `Origin` or `Referer`, or from any other host, gets `403` and does not call Spitch or Azure.
+
+Allowed requests are then counted in Vercel Runtime Cache (process memory off Vercel) before either provider is called. Spitch text counts against the same character budget as Azure. The cache is per region and can evict entries, so the numbers are a cap, not a perfect ledger. One visitor, taken from `x-real-ip` or otherwise `x-forwarded-for`, may make 8 requests per 10 minutes, 30 requests per 24 hours, and 8,000 characters per 24 hours. Everyone sharing that region and deployment environment may make 80 requests and 15,000 characters per 24 hours. Past either cap the route returns `429` and does not call either provider. The page treats `403`, `429`, and a provider error like any other cloud-voice failure and speaks with the browser voice.
 
 ## Scripts
 
@@ -146,4 +148,4 @@ npm run lint   # eslint
 
 `GET /api/translate` reports whether a credential is configured. It does not echo secrets.
 
-`POST /api/speak` returns `audio/mpeg` when Azure Speech is configured and the request is within the site and rate limits above, `403` or `429` when it is not, and `503` when Azure is not configured. `GET /api/speak` reports that status without returning the key.
+`POST /api/speak` returns `audio/mpeg` when that language’s cloud voice is configured and the request is within the site and rate limits above, `403` or `429` when it is not, and `503` when that language has no cloud voice. Yorùbá audio is Spitch; Naijá audio is Azure. `GET /api/speak` reports which providers are configured without returning either key.
