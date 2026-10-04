@@ -6,10 +6,18 @@ import {
   type LanguageId,
 } from "@/lib/languages";
 import {
-  listModelChoices,
-  nextModelIndex,
+  choiceForTranslationModel,
+  describeModelFailure,
+  gatewayConfigured,
   type ProviderName,
 } from "@/lib/provider";
+import {
+  DEFAULT_TRANSLATION_MODEL_ID,
+  isTranslationModelId,
+  TRANSLATION_MODELS,
+  translationModelById,
+  type TranslationModelId,
+} from "@/lib/translation-models";
 import { generateText } from "ai";
 
 export const runtime = "nodejs";
@@ -37,15 +45,16 @@ type TranslateResponse = {
 };
 
 export async function GET() {
-  const [choice] = listModelChoices();
+  const ready = gatewayConfigured();
 
   return Response.json({
-    ready: Boolean(choice),
-    provider: choice?.provider ?? null,
+    ready,
+    provider: ready ? "ai-gateway" : null,
     languages: Object.values(LANGUAGES).map((language) => ({
       id: language.id,
       label: language.label,
     })),
+    models: TRANSLATION_MODELS,
     examples: EXAMPLE_PHRASES,
   });
 }
@@ -62,67 +71,55 @@ export async function POST(request: Request) {
   const parsed = parseBody(body);
   if (!parsed.ok) return errorResponse(parsed.status, parsed.message);
 
-  const choices = listModelChoices();
-  if (choices.length === 0) {
+  const model = translationModelById(parsed.model);
+  const choice = choiceForTranslationModel(parsed.model);
+  if (!choice) {
     return errorResponse(
       503,
-      "No translation credential is configured. On Vercel, enable AI Gateway so OIDC can authenticate. Otherwise set AI_GATEWAY_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY on the server.",
+      `${model.label} was not called. The AI Gateway is not configured. On Vercel, enable AI Gateway. Locally, set AI_GATEWAY_API_KEY or VERCEL_OIDC_TOKEN.`,
     );
   }
 
-  let lastError: unknown;
-  let index = 0;
+  try {
+    const result = await generateText({
+      model: choice.model,
+      system: INSTRUCTIONS[parsed.language],
+      prompt: parsed.text,
+      maxOutputTokens: 2000,
+      timeout: 45_000,
+    });
+    const translation = cleanTranslation(result.text);
 
-  while (index < choices.length) {
-    const choice = choices[index];
-    if (!choice) break;
-
-    try {
-      const result = await generateText({
-        model: choice.model,
-        system: INSTRUCTIONS[parsed.language],
-        prompt: parsed.text,
-        maxOutputTokens: 2000,
-        timeout: 45_000,
-      });
-      const translation = cleanTranslation(result.text);
-
-      if (!translation) {
-        return errorResponse(502, "The model returned an empty translation.");
-      }
-
-      const payload: TranslateResponse = {
-        translation,
-        language: parsed.language,
-        provider: choice.provider,
-        model: choice.modelId,
-      };
-
-      return Response.json(payload);
-    } catch (error) {
-      lastError = error;
-      console.error(
-        `Translation with ${choice.provider} (${choice.modelId}) failed`,
-        error,
-      );
-
-      const next = nextModelIndex(choices, index, error);
-      if (next === null) break;
-      index = next;
+    if (!translation) {
+      return errorResponse(502, `${model.label} returned an empty translation.`);
     }
-  }
 
-  console.error("Translation failed", lastError);
-  return errorResponse(
-    502,
-    "Translation failed. Check the server logs and the configured API credential.",
-  );
+    const payload: TranslateResponse = {
+      translation,
+      language: parsed.language,
+      provider: choice.provider,
+      model: choice.modelId,
+    };
+
+    return Response.json(payload);
+  } catch (error) {
+    console.error(
+      `Translation with ${choice.provider} (${choice.modelId}) failed`,
+      error,
+    );
+    return errorResponse(502, describeModelFailure(model.label, error));
+  }
 }
 
 function parseBody(
   body: unknown,
 ):
-  | { ok: true; text: string; language: LanguageId }
+  | {
+      ok: true;
+      text: string;
+      language: LanguageId;
+      model: TranslationModelId;
+    }
   | { ok: false; status: number; message: string } {
   if (!body || typeof body !== "object") {
     return {
@@ -132,12 +129,24 @@ function parseBody(
     };
   }
 
-  const record = body as { text?: unknown; language?: unknown };
+  const record = body as { text?: unknown; language?: unknown; model?: unknown };
   if (typeof record.text !== "string" || !isLanguageId(record.language)) {
     return {
       ok: false,
       status: 400,
       message: 'Expected { "text": string, "language": "naija" | "yoruba" }.',
+    };
+  }
+
+  const model =
+    record.model === undefined
+      ? DEFAULT_TRANSLATION_MODEL_ID
+      : record.model;
+  if (!isTranslationModelId(model)) {
+    return {
+      ok: false,
+      status: 400,
+      message: "Choose one of the listed translation models.",
     };
   }
 
@@ -154,7 +163,7 @@ function parseBody(
     };
   }
 
-  return { ok: true, text, language: record.language };
+  return { ok: true, text, language: record.language, model };
 }
 
 function cleanTranslation(raw: string): string {
