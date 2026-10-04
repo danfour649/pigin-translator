@@ -25,8 +25,6 @@ Return only the translation. No quotes, labels, or notes.`,
   yoruba: `You translate English into Yorùbá.
 Use standard modern Yorùbá orthography, including tone marks and the letters ẹ, ọ, ṣ, and gb.
 Write natural spoken Yorùbá, not a stiff word-for-word gloss.
-Keep kinship words distinct from words that only look or sound similar. Husband is ọḳọ. Do not swap a kinship word for a job or another near-miss, such as calling a husband a farmer.
-For a modern object or habit, use the everyday Yorùbá for it when speakers already have one. Otherwise use a short natural phrase. Do not invent a literal compound, such as calling vaping tobacco ash.
 Keep names, numbers, and the speaker's tone.
 Return only the translation. No quotes, labels, or notes.`,
 };
