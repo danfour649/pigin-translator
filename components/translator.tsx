@@ -23,6 +23,13 @@ import {
   recognitionSupported,
   synthesisSupported,
 } from "@/lib/speech";
+import {
+  CLOUD_AUDIO_MISSING,
+  audioFileForSpeak,
+  canShareAudioFile,
+  downloadAudioFile,
+  shareSpokenAudio,
+} from "@/lib/spoken-audio";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 type Phase = "idle" | "listening" | "translating";
@@ -38,7 +45,14 @@ type Side = {
   model: string | null;
   error: string | null;
   voiceNote: string | null;
+  audioHint: string | null;
   copied: boolean;
+};
+
+type SavedCloudAudio = {
+  url: string;
+  file: File;
+  shareable: boolean;
 };
 
 const PROVIDER_LABELS: Record<string, string> = {
@@ -80,7 +94,10 @@ export function Translator() {
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const copyTimers = useRef<Partial<Record<LanguageId, number>>>({});
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const audioUrlRef = useRef<string | null>(null);
+  const cloudAudioRef = useRef<Partial<Record<LanguageId, SavedCloudAudio>>>({});
+  const [cloudAudio, setCloudAudio] = useState<
+    Partial<Record<LanguageId, SavedCloudAudio>>
+  >({});
   const speakGen = useRef(0);
   const resultRef = useRef<{
     english: string;
@@ -92,10 +109,13 @@ export function Translator() {
   }>({ known: false, providers: {} });
 
   useEffect(() => {
+    const saved = cloudAudioRef;
     return () => {
       recognitionRef.current?.abort();
       speakGen.current += 1;
-      haltPlayback(audioRef, audioUrlRef);
+      haltPlayback(audioRef);
+      releaseCloudAudio(saved.current);
+      saved.current = {};
       for (const timer of Object.values(copyTimers.current)) {
         if (timer) window.clearTimeout(timer);
       }
@@ -159,12 +179,47 @@ export function Translator() {
     }));
   }
 
+  function publishCloudAudio(
+    next: Partial<Record<LanguageId, SavedCloudAudio>>,
+  ) {
+    cloudAudioRef.current = next;
+    setCloudAudio(next);
+  }
+
+  function forgetCloudAudio(language: LanguageId) {
+    const previous = cloudAudioRef.current[language];
+    if (!previous) return;
+    URL.revokeObjectURL(previous.url);
+    const next = { ...cloudAudioRef.current };
+    delete next[language];
+    publishCloudAudio(next);
+  }
+
+  function forgetAllCloudAudio() {
+    releaseCloudAudio(cloudAudioRef.current);
+    publishCloudAudio({});
+  }
+
+  function commitCloudAudio(language: LanguageId, file: File, url: string) {
+    const previous = cloudAudioRef.current[language];
+    if (previous && previous.url !== url) URL.revokeObjectURL(previous.url);
+    publishCloudAudio({
+      ...cloudAudioRef.current,
+      [language]: {
+        url,
+        file,
+        shareable: canShareAudioFile(file),
+      },
+    });
+  }
+
   async function onTranslate() {
     const source = text.trim();
     if (!source || phase === "translating") return;
 
     stopListening();
     stopSpeaking();
+    forgetAllCloudAudio();
     for (const timer of Object.values(copyTimers.current)) {
       if (timer) window.clearTimeout(timer);
     }
@@ -326,9 +381,10 @@ export function Translator() {
     if (!spoken || phase === "translating") return;
 
     const generation = ++speakGen.current;
-    haltPlayback(audioRef, audioUrlRef);
+    haltPlayback(audioRef);
+    forgetCloudAudio(language);
     setSpeaking(language);
-    updateSide(language, { voiceNote: null, error: null });
+    updateSide(language, { voiceNote: null, error: null, audioHint: null });
 
     const knownProviders = speakStatus.current.known
       ? speakStatus.current.providers
@@ -347,12 +403,14 @@ export function Translator() {
     if (useCloud) {
       const played = await speakWithCloud(spoken, language, generation);
       if (played || speakGen.current !== generation) return;
+      updateSide(language, { audioHint: CLOUD_AUDIO_MISSING });
     }
 
     if (!canSpeak) {
       setSpeaking((current) => (current === language ? null : current));
       updateSide(language, {
         voiceNote: "This browser could not play the translation.",
+        audioHint: useCloud ? CLOUD_AUDIO_MISSING : null,
       });
       return;
     }
@@ -365,6 +423,8 @@ export function Translator() {
     spokenLanguage: LanguageId,
     generation: number,
   ) {
+    let playbackUrl: string | null = null;
+    let transferred = false;
     try {
       const response = await fetch("/api/speak", {
         method: "POST",
@@ -375,14 +435,20 @@ export function Translator() {
       const contentType = response.headers.get("content-type") ?? "";
       if (!response.ok || !contentType.startsWith("audio/")) return false;
 
-      const url = URL.createObjectURL(await response.blob());
-      if (speakGen.current !== generation) {
-        URL.revokeObjectURL(url);
-        return true;
-      }
+      const blob = await response.blob();
+      if (speakGen.current !== generation) return true;
+      const file = audioFileForSpeak(
+        "cloud",
+        spokenLanguage,
+        blob,
+        contentType,
+      );
+      if (!file) return false;
 
-      audioUrlRef.current = url;
-      const audio = new Audio(url);
+      playbackUrl = URL.createObjectURL(file);
+      if (speakGen.current !== generation) return true;
+
+      const audio = new Audio(playbackUrl);
       audioRef.current = audio;
       const voiceName =
         voices[spokenLanguage] ??
@@ -390,18 +456,23 @@ export function Translator() {
       const providerLabel = spokenLanguage === "yoruba" ? "Spitch" : "Azure";
       updateSide(spokenLanguage, {
         voiceNote: `Speaking with ${providerLabel} ${voiceName}.`,
+        audioHint: null,
       });
       audio.onended = () => {
         if (speakGen.current !== generation) return;
         setSpeaking((current) => (current === spokenLanguage ? null : current));
-        releaseAudioUrl(audioUrlRef, url);
       };
       await audio.play();
+      if (speakGen.current !== generation) return true;
+      commitCloudAudio(spokenLanguage, file, playbackUrl);
+      transferred = true;
       return true;
     } catch {
       if (speakGen.current !== generation) return true;
-      haltPlayback(audioRef, audioUrlRef);
+      haltPlayback(audioRef);
       return false;
+    } finally {
+      if (playbackUrl && !transferred) URL.revokeObjectURL(playbackUrl);
     }
   }
 
@@ -445,8 +516,21 @@ export function Translator() {
 
   function stopSpeaking() {
     speakGen.current += 1;
-    haltPlayback(audioRef, audioUrlRef);
+    haltPlayback(audioRef);
     setSpeaking(null);
+  }
+
+  function onDownloadAudio(language: LanguageId) {
+    const saved = cloudAudioRef.current[language];
+    if (!saved) return;
+    downloadAudioFile(saved.url, saved.file.name);
+  }
+
+  async function onShareAudio(language: LanguageId) {
+    const saved = cloudAudioRef.current[language];
+    if (!saved) return;
+    const result = await shareSpokenAudio(saved.file);
+    if (result === "unavailable") downloadAudioFile(saved.url, saved.file.name);
   }
 
   async function onCopy(language: LanguageId) {
@@ -603,6 +687,7 @@ export function Translator() {
               : side.model;
           const thisSpeaking = speaking === language;
           const canPlay = canSpeak || Boolean(providers[language]);
+          const saved = cloudAudio[language];
           return (
             <section
               key={language}
@@ -656,9 +741,39 @@ export function Translator() {
                 >
                   {side.copied ? "Copied" : "Copy"}
                 </button>
+                {saved ? (
+                  <button
+                    type="button"
+                    onClick={() => onDownloadAudio(language)}
+                    aria-label={`Download ${item.label} audio`}
+                    title="Download an MP3 you can attach in WhatsApp or Messages"
+                    className="rounded-full border border-line px-4 py-2 text-sm font-semibold hover:bg-paper focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green"
+                  >
+                    Download
+                  </button>
+                ) : null}
+                {saved?.shareable ? (
+                  <button
+                    type="button"
+                    onClick={() => void onShareAudio(language)}
+                    aria-label={`Share ${item.label} audio`}
+                    title="Open the share sheet to attach this MP3"
+                    className="rounded-full border border-line px-4 py-2 text-sm font-semibold hover:bg-paper focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green"
+                  >
+                    Share
+                  </button>
+                ) : null}
               </div>
+              {saved ? (
+                <p className="mt-3 text-sm text-muted">
+                  This MP3 can be attached in WhatsApp or Messages.
+                </p>
+              ) : null}
               {side.voiceNote ? (
                 <p className="mt-3 text-sm text-gold">{side.voiceNote}</p>
+              ) : null}
+              {side.audioHint ? (
+                <p className="mt-2 text-sm text-muted">{side.audioHint}</p>
               ) : null}
               {side.error ? (
                 <p role="alert" className="mt-3 text-sm text-clay">
@@ -695,9 +810,11 @@ export function Translator() {
           Edge can listen. Safari often cannot, Firefox support varies, and iOS
           is the most limited. Pigin does not upload microphone audio. When
           Spitch is configured, Yorùbá Speak plays that voice. When Azure
-          Speech is configured, Naijá Speak plays that voice. Otherwise that
-          side uses this browser, which rarely has a Yorùbá voice and has no
-          dedicated Naijá voice. See the README.
+          Speech is configured, Naijá Speak plays that voice. After that voice
+          plays, download the MP3 or share it to attach in WhatsApp or
+          Messages. If Speak uses this browser instead, there is no audio
+          file. This browser rarely has a Yorùbá voice and has no dedicated
+          Naijá voice. See the README.
         </p>
       </section>
     </div>
@@ -724,14 +841,12 @@ function blankSide(): Side {
     model: null,
     error: null,
     voiceNote: null,
+    audioHint: null,
     copied: false,
   };
 }
 
-function haltPlayback(
-  audioRef: { current: HTMLAudioElement | null },
-  audioUrlRef: { current: string | null },
-) {
+function haltPlayback(audioRef: { current: HTMLAudioElement | null }) {
   if (synthesisSupported()) window.speechSynthesis.cancel();
   const audio = audioRef.current;
   if (audio) {
@@ -740,18 +855,14 @@ function haltPlayback(
     audio.load();
     audioRef.current = null;
   }
-  if (audioUrlRef.current) {
-    URL.revokeObjectURL(audioUrlRef.current);
-    audioUrlRef.current = null;
-  }
 }
 
-function releaseAudioUrl(
-  audioUrlRef: { current: string | null },
-  url: string,
+function releaseCloudAudio(
+  saved: Partial<Record<LanguageId, { url: string }>>,
 ) {
-  URL.revokeObjectURL(url);
-  if (audioUrlRef.current === url) audioUrlRef.current = null;
+  for (const entry of Object.values(saved)) {
+    if (entry) URL.revokeObjectURL(entry.url);
+  }
 }
 
 function subscribeBrowser() {
