@@ -26,9 +26,9 @@ Set an AI Gateway credential in `.env.local`: `AI_GATEWAY_API_KEY` or `VERCEL_OI
 
 The page has a model selector. Both Naijá and Yorùbá use the model you pick, and Pigin calls only that model. If the gateway rejects it, the page shows that failure and does not try a different model.
 
-- **Gemini 2.5 Flash Lite** (`google/gemini-2.5-flash-lite`) — the free model this site already uses. This is the default.
+- **GPT-5.4** (`openai/gpt-5.4`) — paid, and the default. It spends AI Gateway credits.
+- **Gemini 2.5 Flash Lite** (`google/gemini-2.5-flash-lite`) — free.
 - **Gemini 3.1 Flash Lite** (`google/gemini-3.1-flash-lite`)
-- **GPT-5.4** (`openai/gpt-5.4`) — paid. It spends AI Gateway credits.
 
 Do not prefix any of these with `NEXT_PUBLIC_`. They are read only in the server route `app/api/translate/route.ts`.
 
@@ -47,7 +47,7 @@ npm run dev
 
 You can instead create an AI Gateway API key in the Vercel dashboard and set `AI_GATEWAY_API_KEY`. A gateway key takes precedence over OIDC.
 
-Gateway requests use the model selected on the page. The default is `google/gemini-2.5-flash-lite`.
+Gateway requests use the model selected on the page. The default is `openai/gpt-5.4`.
 
 ## Deploy on Vercel
 
@@ -127,10 +127,10 @@ npm run lint   # eslint
 `POST /api/translate`
 
 ```json
-{ "text": "Good morning", "language": "naija", "model": "google/gemini-2.5-flash-lite" }
+{ "text": "Good morning", "language": "naija", "model": "openai/gpt-5.4" }
 ```
 
-`language` is `naija` or `yoruba`. `model` is one of `google/gemini-2.5-flash-lite`, `google/gemini-3.1-flash-lite`, or `openai/gpt-5.4`. If `model` is omitted, the free model is used. `text` is required and capped at 4000 characters. The page sends two of these requests, one for each language, so both translations appear together. A gateway rejection is returned as `error` and shown on the page.
+`language` is `naija` or `yoruba`. `model` is one of `openai/gpt-5.4`, `google/gemini-2.5-flash-lite`, or `google/gemini-3.1-flash-lite`. If `model` is omitted, `openai/gpt-5.4` is used. `text` is required and capped at 4000 characters. The page sends two of these requests, one for each language, so both translations appear together. A gateway rejection is returned as `error` and shown on the page.
 
 Bookmarks and corrections are stored in the browser’s `localStorage`. They stay after a refresh and are not included in the translation request or the model prompt.
 
@@ -139,7 +139,7 @@ Bookmarks and corrections are stored in the browser’s `localStorage`. They sta
   "translation": "Gud mọnin",
   "language": "naija",
   "provider": "ai-gateway",
-  "model": "google/gemini-2.5-flash-lite"
+  "model": "openai/gpt-5.4"
 }
 ```
 

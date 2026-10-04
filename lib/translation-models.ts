@@ -1,25 +1,25 @@
 export const TRANSLATION_MODELS = [
   {
+    id: "openai/gpt-5.4",
+    label: "GPT-5.4",
+    note: "Paid. Selected by default.",
+  },
+  {
     id: "google/gemini-2.5-flash-lite",
     label: "Gemini 2.5 Flash Lite",
-    note: "Free model this site uses now",
+    note: "Free",
   },
   {
     id: "google/gemini-3.1-flash-lite",
     label: "Gemini 3.1 Flash Lite",
     note: "Newer Gemini",
   },
-  {
-    id: "openai/gpt-5.4",
-    label: "GPT-5.4",
-    note: "Paid",
-  },
 ] as const;
 
 export type TranslationModelId = (typeof TRANSLATION_MODELS)[number]["id"];
 
 export const DEFAULT_TRANSLATION_MODEL_ID: TranslationModelId =
-  "google/gemini-2.5-flash-lite";
+  "openai/gpt-5.4";
 
 export function isTranslationModelId(
   value: unknown,
