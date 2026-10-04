@@ -5,6 +5,11 @@ import {
   parseSpeakBody,
   synthesizeAzureSpeech,
 } from "@/lib/azure-speech";
+import {
+  clientAddress,
+  decideSpeakAccess,
+  speakCounterStore,
+} from "@/lib/speak-guard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,6 +46,22 @@ export async function POST(request: Request) {
     return Response.json(
       { error: "Azure Speech is not configured." },
       { status: 503 },
+    );
+  }
+
+  const access = await decideSpeakAccess({
+    origin: request.headers.get("origin"),
+    referer: request.headers.get("referer"),
+    ip: clientAddress(request.headers),
+    textLength: parsed.text.length,
+    now: Date.now(),
+    env: process.env,
+    store: speakCounterStore(),
+  });
+  if (!access.ok) {
+    return Response.json(
+      { error: access.message },
+      { status: access.status, headers: { "Cache-Control": "no-store" } },
     );
   }
 

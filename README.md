@@ -108,7 +108,11 @@ AZURE_SPEECH_REGION=eastus
 
 4. On Vercel, open the project → Settings → Environment Variables. Add `AZURE_SPEECH_KEY` and `AZURE_SPEECH_REGION` for Production (and Preview, if you want it there). Redeploy. Do not mark them as exposed to the browser.
 
-`GET /api/speak` returns `{ "configured": true }` or `false`, plus the voice names. It does not return the key. `POST /api/speak` with `{ "text", "language" }` returns `audio/mpeg` when Azure is configured. `language` is `naija` or `yoruba`, and `text` has the same 4000-character cap as translation. No other cloud voice provider is wired up.
+`GET /api/speak` returns `{ "configured": true }` or `false`, plus the voice names. It does not return the key. `POST /api/speak` with `{ "text", "language" }` returns `audio/mpeg` when Azure is configured and the request is allowed. `language` is `naija` or `yoruba`, and `text` has the same 4000-character cap as translation. No other cloud voice provider is wired up.
+
+`POST /api/speak` only calls Azure for this site, and only inside a small budget. The site check uses the `Origin` header, or `Referer` when `Origin` is absent. Allowed hosts are `pigin-translator.vercel.app`, the deployment’s `VERCEL_URL`, `VERCEL_BRANCH_URL`, and `VERCEL_PROJECT_PRODUCTION_URL`, plus `localhost` / `127.0.0.1` / `::1` when `VERCEL` is unset. That header check is not a lock: a non-browser client can forge it. A request with no `Origin` or `Referer`, or from any other host, gets `403` and does not call Azure.
+
+Allowed requests are then counted in Vercel Runtime Cache (process memory off Vercel). The cache is per region and can evict entries, so the numbers are a cap, not a perfect ledger. One visitor, taken from `x-real-ip` or otherwise `x-forwarded-for`, may make 8 requests per 10 minutes, 30 requests per 24 hours, and 8,000 characters per 24 hours. Everyone sharing that region and deployment environment may make 80 requests and 15,000 characters per 24 hours. Past either cap the route returns `429` and does not call Azure. The page treats `403` and `429` like any other Azure failure and speaks with the browser voice.
 
 ## Scripts
 
@@ -142,4 +146,4 @@ npm run lint   # eslint
 
 `GET /api/translate` reports whether a credential is configured. It does not echo secrets.
 
-`POST /api/speak` returns `audio/mpeg` when Azure Speech is configured, and `503` when it is not. `GET /api/speak` reports that status without returning the key.
+`POST /api/speak` returns `audio/mpeg` when Azure Speech is configured and the request is within the site and rate limits above, `403` or `429` when it is not, and `503` when Azure is not configured. `GET /api/speak` reports that status without returning the key.
