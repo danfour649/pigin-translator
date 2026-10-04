@@ -1,6 +1,7 @@
 import { anthropic } from "@ai-sdk/anthropic";
 import { openai } from "@ai-sdk/openai";
 import { APICallError, gateway, type LanguageModel } from "ai";
+import type { TranslationModelId } from "./translation-models";
 
 /**
  * Free-tier AI Gateway models, tried in order. A paid model such as
@@ -31,6 +32,37 @@ export type ModelChoice = {
  * 3. Anthropic when ANTHROPIC_API_KEY is set.
  * Keys are read only in this server module.
  */
+export function gatewayConfigured(): boolean {
+  return Boolean(
+    process.env.AI_GATEWAY_API_KEY ||
+      process.env.VERCEL_OIDC_TOKEN ||
+      process.env.VERCEL === "1",
+  );
+}
+
+/** The model the visitor picked. No fallback to another model. */
+export function choiceForTranslationModel(
+  modelId: TranslationModelId,
+): ModelChoice | null {
+  if (!gatewayConfigured()) return null;
+
+  return {
+    model: gateway(modelId),
+    provider: "ai-gateway",
+    modelId,
+  };
+}
+
+export function describeModelFailure(label: string, error: unknown): string {
+  const detail = safeDetail(error);
+  const rejected =
+    isCredentialError(error) || isRetryableModelChoiceError(error);
+  const lead = rejected
+    ? `${label} was rejected by the AI Gateway.`
+    : `${label} could not translate.`;
+  return detail ? `${lead} ${detail}` : lead;
+}
+
 export function listModelChoices(): ModelChoice[] {
   const choices: ModelChoice[] = [];
   const gatewayReady = Boolean(
@@ -151,6 +183,21 @@ function statusOf(error: unknown): number | undefined {
   if (!error || typeof error !== "object") return undefined;
   const status = (error as { statusCode?: unknown }).statusCode;
   return typeof status === "number" ? status : undefined;
+}
+
+function safeDetail(error: unknown): string {
+  for (const entry of errorChain(error)) {
+    if (!entry || typeof entry !== "object") continue;
+    const message = (entry as { message?: unknown }).message;
+    if (typeof message !== "string") continue;
+    const cleaned = message.replace(/\s+/g, " ").trim();
+    if (!cleaned || /api[_ -]?key|bearer\s+[a-z0-9._-]+/i.test(cleaned)) {
+      continue;
+    }
+    return cleaned.length > 280 ? `${cleaned.slice(0, 277)}...` : cleaned;
+  }
+
+  return "";
 }
 
 function errorBlob(error: unknown): string {

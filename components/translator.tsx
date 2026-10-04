@@ -1,5 +1,6 @@
 "use client";
 
+import { addCatalogItem } from "@/lib/catalog";
 import {
   EXAMPLE_PHRASES,
   LANGUAGE_IDS,
@@ -7,6 +8,14 @@ import {
   MAX_SOURCE_LENGTH,
   type LanguageId,
 } from "@/lib/languages";
+import {
+  DEFAULT_TRANSLATION_MODEL_ID,
+  isTranslationModelId,
+  TRANSLATION_MODELS,
+  translationModelById,
+  type TranslationModelId,
+} from "@/lib/translation-models";
+import { SavedCatalog } from "@/components/saved-catalog";
 import {
   chooseVoice,
   createRecognition,
@@ -26,6 +35,7 @@ type ReadyState = {
 type Side = {
   text: string;
   provider: string | null;
+  model: string | null;
   error: string | null;
   voiceNote: string | null;
   copied: boolean;
@@ -39,6 +49,10 @@ const PROVIDER_LABELS: Record<string, string> = {
 
 export function Translator() {
   const [text, setText] = useState("");
+  const [modelId, setModelId] = useState<TranslationModelId>(
+    DEFAULT_TRANSLATION_MODEL_ID,
+  );
+  const [bookmarkNote, setBookmarkNote] = useState<string | null>(null);
   const [interim, setInterim] = useState("");
   const [sides, setSides] = useState<Record<LanguageId, Side>>({
     naija: blankSide(),
@@ -68,6 +82,10 @@ export function Translator() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioUrlRef = useRef<string | null>(null);
   const speakGen = useRef(0);
+  const resultRef = useRef<{
+    english: string;
+    modelId: TranslationModelId;
+  } | null>(null);
   const speakStatus = useRef<{
     known: boolean;
     providers: Partial<Record<LanguageId, string | null>>;
@@ -152,8 +170,10 @@ export function Translator() {
     }
     copyTimers.current = {};
     setInputError(null);
+    setBookmarkNote(null);
     setSides({ naija: blankSide(), yoruba: blankSide() });
     setPhase("translating");
+    resultRef.current = { english: source, modelId };
 
     const outcomes = await Promise.all(
       LANGUAGE_IDS.map(async (language) => {
@@ -161,11 +181,12 @@ export function Translator() {
           const response = await fetch("/api/translate", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text: source, language }),
+            body: JSON.stringify({ text: source, language, model: modelId }),
           });
           const data = (await response.json()) as {
             translation?: string;
             provider?: string;
+            model?: string;
             error?: string;
           };
           if (!response.ok || !data.translation) {
@@ -175,6 +196,7 @@ export function Translator() {
             language,
             text: data.translation,
             provider: data.provider ?? null,
+            model: data.model ?? modelId,
             error: null,
           };
         } catch (translateError) {
@@ -182,6 +204,7 @@ export function Translator() {
             language,
             text: "",
             provider: null,
+            model: null,
             error:
               translateError instanceof Error
                 ? translateError.message
@@ -198,6 +221,7 @@ export function Translator() {
           ...current[outcome.language],
           text: outcome.text,
           provider: outcome.provider,
+          model: outcome.model,
           error: outcome.error,
         };
       }
@@ -252,6 +276,23 @@ export function Translator() {
     } catch {
       setInputError("The microphone is already in use. Stop it, then try again.");
     }
+  }
+
+  function onBookmark() {
+    const result = resultRef.current;
+    if (!result || (!sides.naija.text && !sides.yoruba.text)) return;
+    const model = translationModelById(result.modelId);
+    addCatalogItem({
+      id: crypto.randomUUID(),
+      english: result.english,
+      naija: sides.naija.text,
+      yoruba: sides.yoruba.text,
+      modelId: model.id,
+      modelLabel: model.label,
+      savedAt: new Date().toISOString(),
+      correction: null,
+    });
+    setBookmarkNote("Saved in this browser.");
   }
 
   function stopListening() {
@@ -492,6 +533,38 @@ export function Translator() {
           ))}
         </div>
 
+        <fieldset className="mt-5">
+          <legend className="text-sm font-semibold">Translation model</legend>
+          <div className="mt-2 grid gap-2 sm:grid-cols-3">
+            {TRANSLATION_MODELS.map((model) => (
+              <label
+                key={model.id}
+                className={`flex cursor-pointer gap-2 rounded-2xl border px-3 py-2 text-sm ${
+                  modelId === model.id
+                    ? "border-green bg-white"
+                    : "border-line bg-white hover:border-green"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="translation-model"
+                  value={model.id}
+                  checked={modelId === model.id}
+                  onChange={() => setModelId(model.id)}
+                  className="mt-1 accent-green"
+                />
+                <span>
+                  <span className="font-semibold">{model.label}</span>
+                  <span className="mt-0.5 block text-muted">{model.note}</span>
+                  <span className="mt-1 block font-mono text-xs text-muted">
+                    {model.id}
+                  </span>
+                </span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+
         <button
           type="button"
           onClick={() => void onTranslate()}
@@ -524,6 +597,10 @@ export function Translator() {
           const providerLabel = side.provider
             ? (PROVIDER_LABELS[side.provider] ?? side.provider)
             : null;
+          const modelLabel =
+            side.model && isTranslationModelId(side.model)
+              ? translationModelById(side.model).label
+              : side.model;
           const thisSpeaking = speaking === language;
           const canPlay = canSpeak || Boolean(providers[language]);
           return (
@@ -535,7 +612,10 @@ export function Translator() {
               <div className="flex items-baseline justify-between gap-3">
                 <h2 className="font-display text-3xl text-ink">{item.label}</h2>
                 {providerLabel ? (
-                  <p className="text-sm text-muted">via {providerLabel}</p>
+                  <p className="text-right text-sm text-muted">
+                    via {providerLabel}
+                    {modelLabel ? ` · ${modelLabel}` : ""}
+                  </p>
                 ) : null}
               </div>
               <p
@@ -590,6 +670,24 @@ export function Translator() {
         })}
       </div>
 
+      <div className="flex flex-col items-start gap-2">
+        <button
+          type="button"
+          onClick={onBookmark}
+          disabled={translating || (!sides.naija.text && !sides.yoruba.text)}
+          className="rounded-full border border-line bg-card px-4 py-2 text-sm font-semibold hover:bg-paper focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Bookmark this translation
+        </button>
+        {bookmarkNote ? (
+          <p aria-live="polite" className="text-sm text-green-ink">
+            {bookmarkNote}
+          </p>
+        ) : null}
+      </div>
+
+      <SavedCatalog />
+
       <section className="px-1 text-sm leading-relaxed text-muted">
         <h2 className="font-semibold text-ink">Browser speech</h2>
         <p className="mt-1">
@@ -623,6 +721,7 @@ function blankSide(): Side {
   return {
     text: "",
     provider: null,
+    model: null,
     error: null,
     voiceNote: null,
     copied: false,
