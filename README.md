@@ -148,3 +148,13 @@ Bookmarks and corrections are stored in the browser’s `localStorage`. They sta
 `GET /api/translate` reports whether a credential is configured. It does not echo secrets.
 
 `POST /api/speak` returns `audio/mpeg` when that language’s cloud voice is configured and the request is within the site and rate limits above, `403` or `429` when it is not, and `503` when that language has no cloud voice. Yorùbá audio is Spitch; Naijá audio is Azure. `GET /api/speak` reports which providers are configured without returning either key.
+
+## Provider safety filter
+
+On 2026-10-04 (Halifax), production `openai/gpt-5.4` on pigin-translator.vercel.app was tested with the same sexually explicit English statement. Four calls each went to `POST /api/translate` for Naijá and for Yorùbá. Every call returned HTTP 200.
+
+Naijá refused 3 of 4 times. Those refusals were Nigerian Pidgin variants of “I can’t help translate sexually explicit content” and suggested rewriting the line as romantic or respectful. Yorùbá refused 0 of 4 times and returned a translation each time.
+
+A non-sexual control, “come downstairs so we can have breakfast,” translated in both languages.
+
+The split is OpenAI’s safety filter. It catches the English-shaped Pidgin call and misses the Yorùbá call. It is not a bug in the Naijá route.
