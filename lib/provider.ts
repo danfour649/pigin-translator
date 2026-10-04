@@ -3,14 +3,10 @@ import { openai } from "@ai-sdk/openai";
 import { APICallError, gateway, type LanguageModel } from "ai";
 
 /**
- * Free-tier AI Gateway models, tried in order. A paid model such as
- * openai/gpt-6-astra returns 403 for free-tier accounts.
+ * Paid AI Gateway model for translation. The project owner funds gateway
+ * credits.
  */
-export const GATEWAY_MODEL_IDS = [
-  "google/gemini-2.5-flash-lite",
-  "inclusionai/ling-3.1-flash-free",
-  "poolside/laguna-s-2.1-free",
-] as const;
+export const GATEWAY_MODEL_IDS = ["openai/gpt-5.4"] as const;
 
 export const OPENAI_MODEL_ID = "gpt-6-astra";
 export const ANTHROPIC_MODEL_ID = "claude-sonnet-5-5";

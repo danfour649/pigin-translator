@@ -24,14 +24,11 @@ Open [http://localhost:3000](http://localhost:3000).
 
 Set **one** server credential in `.env.local`. Pigin tries them in this order:
 
-1. **AI Gateway**, when `AI_GATEWAY_API_KEY` or `VERCEL_OIDC_TOKEN` is present, or when the app is running on Vercel. Free-tier models are tried in order:
-   - `google/gemini-2.5-flash-lite`
-   - `inclusionai/ling-3.1-flash-free`
-   - `poolside/laguna-s-2.1-free`
+1. **AI Gateway**, when `AI_GATEWAY_API_KEY` or `VERCEL_OIDC_TOKEN` is present, or when the app is running on Vercel. The model is `openai/gpt-5.4`.
 2. **OpenAI** (`gpt-6-astra`), when `OPENAI_API_KEY` is present.
 3. **Anthropic** (`claude-sonnet-5-5`), when `ANTHROPIC_API_KEY` is present.
 
-A free-tier model restriction (HTTP 403, `RestrictedModelsError`, or `no_providers_available`) tries the next model, including a direct provider key after the gateway list is exhausted. An authentication failure (HTTP 401) skips the remaining gateway models and tries a direct key when one is set. Other failures stop, so a working key is not charged by accident.
+A model restriction (HTTP 403, `RestrictedModelsError`, or `no_providers_available`) tries the next configured credential, including a direct provider key after the gateway model. An authentication failure (HTTP 401) skips the gateway model and tries a direct key when one is set. Other failures stop, so a working key is not charged by accident.
 
 Do not prefix any of these with `NEXT_PUBLIC_`. They are read only in the server route `app/api/translate/route.ts`.
 
@@ -50,7 +47,7 @@ npm run dev
 
 You can instead create an AI Gateway API key in the Vercel dashboard and set `AI_GATEWAY_API_KEY`. A gateway key takes precedence over OIDC.
 
-Gateway requests use the free-tier models listed above, starting with `google/gemini-2.5-flash-lite`. Direct OpenAI uses `gpt-6-astra`. Direct Anthropic uses `claude-sonnet-5-5`.
+Gateway requests use `openai/gpt-5.4`. Direct OpenAI uses `gpt-6-astra`. Direct Anthropic uses `claude-sonnet-5-5`.
 
 ## Deploy on Vercel
 
@@ -140,7 +137,7 @@ npm run lint   # eslint
   "translation": "Gud mọnin",
   "language": "naija",
   "provider": "ai-gateway",
-  "model": "google/gemini-2.5-flash-lite"
+  "model": "openai/gpt-5.4"
 }
 ```
 
