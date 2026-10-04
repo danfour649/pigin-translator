@@ -24,6 +24,20 @@ import {
   synthesisSupported,
 } from "@/lib/speech";
 import {
+  BROWSER_PLAYBACK_FAILED,
+  BROWSER_SPEECH_START_MS,
+  IDLE_SESSION,
+  PLAYBACK_SESSION,
+  SPEAK_WAITING,
+  armSpeaker,
+  audioSessionOf,
+  browserSpeechCard,
+  cloudSpeakCard,
+  playCloudMp3,
+  setAudioSessionType,
+  stopSpeaker,
+} from "@/lib/speak-playback";
+import {
   CLOUD_AUDIO_MISSING,
   audioFileForSpeak,
   canShareAudioFile,
@@ -75,6 +89,7 @@ export function Translator() {
   const [inputError, setInputError] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
   const [speaking, setSpeaking] = useState<LanguageId | null>(null);
+  const [preparing, setPreparing] = useState<LanguageId | null>(null);
   const [ready, setReady] = useState<ReadyState | null>(null);
   const [voices, setVoices] = useState<Partial<Record<LanguageId, string>>>({});
   const [providers, setProviders] = useState<
@@ -99,6 +114,7 @@ export function Translator() {
     Partial<Record<LanguageId, SavedCloudAudio>>
   >({});
   const speakGen = useRef(0);
+  const speechWatch = useRef<number | null>(null);
   const resultRef = useRef<{
     english: string;
     modelId: TranslationModelId;
@@ -113,7 +129,11 @@ export function Translator() {
     return () => {
       recognitionRef.current?.abort();
       speakGen.current += 1;
+      clearSpeechWatch(speechWatch);
       haltPlayback(audioRef);
+      audioRef.current?.remove();
+      audioRef.current = null;
+      setAudioSessionType(audioSessionOf(navigator), IDLE_SESSION);
       releaseCloudAudio(saved.current);
       saved.current = {};
       for (const timer of Object.values(copyTimers.current)) {
@@ -381,10 +401,21 @@ export function Translator() {
     if (!spoken || phase === "translating") return;
 
     const generation = ++speakGen.current;
+    clearSpeechWatch(speechWatch);
     haltPlayback(audioRef);
     forgetCloudAudio(language);
-    setSpeaking(language);
-    updateSide(language, { voiceNote: null, error: null, audioHint: null });
+    setSpeaking(null);
+    setPreparing(language);
+    updateSide(language, {
+      voiceNote: null,
+      error: null,
+      audioHint: SPEAK_WAITING,
+    });
+
+    const speaker = audioRef.current ?? document.createElement("audio");
+    audioRef.current = speaker;
+    // Arm before any await so iOS still treats the later MP3 as this click.
+    armSpeaker(speaker, document.body);
 
     const knownProviders = speakStatus.current.known
       ? speakStatus.current.providers
@@ -393,23 +424,26 @@ export function Translator() {
 
     const useCloud = Boolean(knownProviders[language]);
     if (!useCloud && !canSpeak) {
-      setSpeaking((current) => (current === language ? null : current));
+      stopSpeaker(speaker);
+      setPreparing((current) => (current === language ? null : current));
       updateSide(language, {
-        voiceNote: "This browser could not play the translation.",
+        voiceNote: BROWSER_PLAYBACK_FAILED,
+        audioHint: null,
       });
       return;
     }
 
     if (useCloud) {
-      const played = await speakWithCloud(spoken, language, generation);
-      if (played || speakGen.current !== generation) return;
+      const outcome = await speakWithCloud(spoken, language, generation);
+      if (outcome !== "fallback" || speakGen.current !== generation) return;
       updateSide(language, { audioHint: CLOUD_AUDIO_MISSING });
     }
 
     if (!canSpeak) {
-      setSpeaking((current) => (current === language ? null : current));
+      stopSpeaker(audioRef.current);
+      setPreparing((current) => (current === language ? null : current));
       updateSide(language, {
-        voiceNote: "This browser could not play the translation.",
+        voiceNote: BROWSER_PLAYBACK_FAILED,
         audioHint: useCloud ? CLOUD_AUDIO_MISSING : null,
       });
       return;
@@ -422,7 +456,7 @@ export function Translator() {
     spoken: string,
     spokenLanguage: LanguageId,
     generation: number,
-  ) {
+  ): Promise<"settled" | "fallback" | "stale"> {
     let playbackUrl: string | null = null;
     let transferred = false;
     try {
@@ -431,46 +465,75 @@ export function Translator() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: spoken, language: spokenLanguage }),
       });
-      if (speakGen.current !== generation) return true;
+      if (speakGen.current !== generation) return "stale";
       const contentType = response.headers.get("content-type") ?? "";
-      if (!response.ok || !contentType.startsWith("audio/")) return false;
+      if (!response.ok || !contentType.startsWith("audio/")) return "fallback";
 
       const blob = await response.blob();
-      if (speakGen.current !== generation) return true;
+      if (speakGen.current !== generation) return "stale";
       const file = audioFileForSpeak(
         "cloud",
         spokenLanguage,
         blob,
         contentType,
       );
-      if (!file) return false;
+      if (!file) return "fallback";
 
       playbackUrl = URL.createObjectURL(file);
-      if (speakGen.current !== generation) return true;
+      if (speakGen.current !== generation) return "stale";
 
-      const audio = new Audio(playbackUrl);
-      audioRef.current = audio;
+      const speaker = audioRef.current;
+      const started = speaker
+        ? await playCloudMp3(speaker, playbackUrl)
+        : false;
+      if (speakGen.current !== generation) return "stale";
+
       const voiceName =
         voices[spokenLanguage] ??
         (spokenLanguage === "yoruba" ? "sade" : "en-NG-EzinneNeural");
       const providerLabel = spokenLanguage === "yoruba" ? "Spitch" : "Azure";
-      updateSide(spokenLanguage, {
-        voiceNote: `Speaking with ${providerLabel} ${voiceName}.`,
-        audioHint: null,
+      const card = cloudSpeakCard({
+        receivedAudio: true,
+        playbackStarted: started,
+        providerLabel,
+        voiceName,
       });
-      audio.onended = () => {
-        if (speakGen.current !== generation) return;
-        setSpeaking((current) => (current === spokenLanguage ? null : current));
-      };
-      await audio.play();
-      if (speakGen.current !== generation) return true;
-      commitCloudAudio(spokenLanguage, file, playbackUrl);
-      transferred = true;
-      return true;
+
+      if (card.offerFile) {
+        commitCloudAudio(spokenLanguage, file, playbackUrl);
+        transferred = true;
+      } else {
+        stopSpeaker(speaker);
+      }
+
+      setPreparing((current) => (current === spokenLanguage ? null : current));
+      setSpeaking(card.speaking ? spokenLanguage : null);
+      if (!card.speaking) {
+        setAudioSessionType(audioSessionOf(navigator), IDLE_SESSION);
+      }
+      updateSide(spokenLanguage, {
+        voiceNote: card.voiceNote,
+        audioHint: card.audioHint,
+        error: card.error,
+      });
+
+      if (card.speaking && speaker) {
+        speaker.onended = () => {
+          if (speakGen.current !== generation) return;
+          setSpeaking((current) =>
+            current === spokenLanguage ? null : current,
+          );
+          setAudioSessionType(audioSessionOf(navigator), IDLE_SESSION);
+        };
+      } else {
+        stopSpeaker(speaker);
+      }
+
+      return card.useBrowserVoice ? "fallback" : "settled";
     } catch {
-      if (speakGen.current !== generation) return true;
-      haltPlayback(audioRef);
-      return false;
+      if (speakGen.current !== generation) return "stale";
+      stopSpeaker(audioRef.current);
+      return "fallback";
     } finally {
       if (playbackUrl && !transferred) URL.revokeObjectURL(playbackUrl);
     }
@@ -483,10 +546,12 @@ export function Translator() {
   ) {
     if (!synthesisSupported() || speakGen.current !== generation) return;
 
+    stopSpeaker(audioRef.current);
     window.speechSynthesis.cancel();
     const available = await loadVoices();
     if (speakGen.current !== generation) return;
 
+    setAudioSessionType(audioSessionOf(navigator), PLAYBACK_SESSION);
     const choice = chooseVoice(spokenLanguage, available);
     const utterance = new SpeechSynthesisUtterance(spoken);
     if (choice.voice) {
@@ -496,28 +561,60 @@ export function Translator() {
       utterance.lang = spokenLanguage === "yoruba" ? "yo-NG" : "en-NG";
     }
     utterance.rate = 0.95;
-    utterance.onend = () => {
-      if (speakGen.current === generation) {
-        setSpeaking((current) => (current === spokenLanguage ? null : current));
+
+    let phase: "wait" | "started" | "failed" = "wait";
+    const apply = (event: "start" | "end" | "error" | "timeout") => {
+      if (speakGen.current !== generation || phase === "failed") return;
+      if (event === "timeout" && phase === "started") return;
+      if (event === "end" && phase !== "started") return;
+      if (event === "start" && phase !== "wait") return;
+
+      const card = browserSpeechCard(event, choice.note);
+      if (event === "start") phase = "started";
+      if (event === "error" || event === "timeout") {
+        phase = "failed";
+        clearSpeechWatch(speechWatch);
+        if (event === "timeout") window.speechSynthesis.cancel();
+      }
+      if (event === "end" || event === "start") clearSpeechWatch(speechWatch);
+
+      setPreparing((current) => (current === spokenLanguage ? null : current));
+      setSpeaking(card.speaking ? spokenLanguage : null);
+      setSides((current) => ({
+        ...current,
+        [spokenLanguage]: {
+          ...current[spokenLanguage],
+          voiceNote: card.voiceNote,
+          error: card.error,
+          audioHint:
+            current[spokenLanguage].audioHint === SPEAK_WAITING
+              ? null
+              : current[spokenLanguage].audioHint,
+        },
+      }));
+      if (!card.speaking) {
+        setAudioSessionType(audioSessionOf(navigator), IDLE_SESSION);
       }
     };
-    utterance.onerror = () => {
-      if (speakGen.current !== generation) return;
-      setSpeaking((current) => (current === spokenLanguage ? null : current));
-      updateSide(spokenLanguage, {
-        voiceNote: "This browser could not play the translation.",
-      });
-    };
 
-    updateSide(spokenLanguage, { voiceNote: choice.note });
-    setSpeaking(spokenLanguage);
+    utterance.onstart = () => apply("start");
+    utterance.onend = () => apply("end");
+    utterance.onerror = () => apply("error");
+    clearSpeechWatch(speechWatch);
+    speechWatch.current = window.setTimeout(
+      () => apply("timeout"),
+      BROWSER_SPEECH_START_MS,
+    );
     window.speechSynthesis.speak(utterance);
   }
 
   function stopSpeaking() {
     speakGen.current += 1;
+    clearSpeechWatch(speechWatch);
     haltPlayback(audioRef);
+    setAudioSessionType(audioSessionOf(navigator), IDLE_SESSION);
     setSpeaking(null);
+    setPreparing(null);
   }
 
   function onDownloadAudio(language: LanguageId) {
@@ -686,6 +783,7 @@ export function Translator() {
               ? translationModelById(side.model).label
               : side.model;
           const thisSpeaking = speaking === language;
+          const thisPreparing = preparing === language;
           const canPlay = canSpeak || Boolean(providers[language]);
           const saved = cloudAudio[language];
           return (
@@ -717,7 +815,8 @@ export function Translator() {
                 <button
                   type="button"
                   onClick={() => void onSpeak(language)}
-                  disabled={!side.text || !canPlay || translating}
+                  disabled={!side.text || !canPlay || translating || thisPreparing}
+                  aria-busy={thisPreparing}
                   aria-label={`Speak ${item.label}`}
                   className="rounded-full bg-green-ink px-4 py-2 text-sm font-semibold text-card hover:bg-green focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green disabled:cursor-not-allowed disabled:opacity-40"
                 >
@@ -726,7 +825,7 @@ export function Translator() {
                 <button
                   type="button"
                   onClick={stopSpeaking}
-                  disabled={!thisSpeaking}
+                  disabled={!thisSpeaking && !thisPreparing}
                   aria-label={`Stop ${item.label}`}
                   className="rounded-full border border-line px-4 py-2 text-sm font-semibold hover:bg-paper focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green disabled:cursor-not-allowed disabled:opacity-40"
                 >
@@ -848,13 +947,13 @@ function blankSide(): Side {
 
 function haltPlayback(audioRef: { current: HTMLAudioElement | null }) {
   if (synthesisSupported()) window.speechSynthesis.cancel();
-  const audio = audioRef.current;
-  if (audio) {
-    audio.pause();
-    audio.removeAttribute("src");
-    audio.load();
-    audioRef.current = null;
-  }
+  stopSpeaker(audioRef.current);
+}
+
+function clearSpeechWatch(watch: { current: number | null }) {
+  if (watch.current == null) return;
+  window.clearTimeout(watch.current);
+  watch.current = null;
 }
 
 function releaseCloudAudio(
