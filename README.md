@@ -158,3 +158,7 @@ Naijá refused 3 of 4 times. Those refusals were Nigerian Pidgin variants of “
 A non-sexual control, “come downstairs so we can have breakfast,” translated in both languages.
 
 The split is OpenAI’s safety filter. It catches the English-shaped Pidgin call and misses the Yorùbá call. It is not a bug in the Naijá route.
+
+## Plan for the Yorùbá generator
+
+[Plan: improving the English-to-Yorùbá generator](docs/yoruba-translation-plan.md) records the open sources, the license limits, what not to scrape, and the fine-tune work that is still undone. It does not change the app.
