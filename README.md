@@ -81,14 +81,14 @@ Voices load asynchronously. The first Speak click waits briefly for the browser�
 
 ## Optional cloud voices
 
-Speak can use a cloud voice per language. The browser plays the MP3 with `new Audio()`. Keys stay on the server and must not use a `NEXT_PUBLIC_` prefix.
+Speak can use a cloud voice per language. The browser plays the MP3 from an audio element on the page, and sets the audio session to `playback` so an iPhone still speaks when the ringer is silent. The card names that voice only after playback has started. Keys stay on the server and must not use a `NEXT_PUBLIC_` prefix.
 
 | Language | Provider | Voice | Env |
 | --- | --- | --- | --- |
 | Naijá | Azure Speech | `en-NG-EzinneNeural` | `AZURE_SPEECH_KEY` and `AZURE_SPEECH_REGION` |
 | Yorùbá | [Spitch](https://docs.spitch.app/features/speech) | `sade` | `SPITCH_API_KEY` |
 
-`en-NG-EzinneNeural` is the current female English (Nigeria) neural voice in [Azure’s language and voice list](https://learn.microsoft.com/en-us/azure/ai-services/speech-service/language-support). Yorùbá does not call Azure. Spitch’s Yoruba voices are `sade` and `funmi` (feminine) and `segun` and `femi` (masculine); Pigin uses `sade`. If that language’s provider is unset or returns an error, Speak uses the browser voice and the existing warning. No new error is shown.
+`en-NG-EzinneNeural` is the current female English (Nigeria) neural voice in [Azure’s language and voice list](https://learn.microsoft.com/en-us/azure/ai-services/speech-service/language-support). Yorùbá does not call Azure. Spitch’s Yoruba voices are `sade` and `funmi` (feminine) and `segun` and `femi` (masculine); Pigin uses `sade`. If that language’s provider is unset or returns an error, Speak uses the browser voice and the existing warning. If the MP3 arrives but playback does not start, Speak says so and does not switch to the browser voice. The recording can still be downloaded.
 
 ### Configure Azure
 
