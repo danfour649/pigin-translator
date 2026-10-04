@@ -1,6 +1,6 @@
 # Pigin
 
-Pigin translates English into Nigerian Pidgin (Naijá) and Yorùbá. Type or dictate the English, pick a language, translate, then play the result.
+Pigin translates English into Nigerian Pidgin (Naijá) and Yorùbá at the same time. Type or dictate the English once, then play either result. There is no language switch.
 
 Translation runs on the server. Microphone audio never goes to Pigin. Listening and speaking use the browser Web Speech API.
 
@@ -133,7 +133,7 @@ npm run lint   # eslint
 { "text": "Good morning", "language": "naija" }
 ```
 
-`language` is `naija` or `yoruba`. `text` is required and capped at 4000 characters.
+`language` is `naija` or `yoruba`. `text` is required and capped at 4000 characters. The page sends two of these requests, one for each language, so both translations appear together.
 
 ```json
 {

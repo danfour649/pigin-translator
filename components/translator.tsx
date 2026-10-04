@@ -2,6 +2,7 @@
 
 import {
   EXAMPLE_PHRASES,
+  LANGUAGE_IDS,
   LANGUAGES,
   MAX_SOURCE_LENGTH,
   type LanguageId,
@@ -15,11 +16,19 @@ import {
 } from "@/lib/speech";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
-type Phase = "idle" | "listening" | "translating" | "speaking";
+type Phase = "idle" | "listening" | "translating";
 
 type ReadyState = {
   ready: boolean;
   provider: string | null;
+};
+
+type Side = {
+  text: string;
+  provider: string | null;
+  error: string | null;
+  voiceNote: string | null;
+  copied: boolean;
 };
 
 const PROVIDER_LABELS: Record<string, string> = {
@@ -30,20 +39,18 @@ const PROVIDER_LABELS: Record<string, string> = {
 
 export function Translator() {
   const [text, setText] = useState("");
-  const [language, setLanguage] = useState<LanguageId>("naija");
   const [interim, setInterim] = useState("");
-  const [translation, setTranslation] = useState("");
-  const [translatedLanguage, setTranslatedLanguage] =
-    useState<LanguageId>("naija");
-  const [provider, setProvider] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [sides, setSides] = useState<Record<LanguageId, Side>>({
+    naija: blankSide(),
+    yoruba: blankSide(),
+  });
+  const [inputError, setInputError] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
-  const [voiceNote, setVoiceNote] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [speaking, setSpeaking] = useState<LanguageId | null>(null);
   const [ready, setReady] = useState<ReadyState | null>(null);
-  const [azureReady, setAzureReady] = useState(false);
-  const [azureVoices, setAzureVoices] = useState<
-    Partial<Record<LanguageId, string>>
+  const [voices, setVoices] = useState<Partial<Record<LanguageId, string>>>({});
+  const [providers, setProviders] = useState<
+    Partial<Record<LanguageId, string | null>>
   >({});
   const canListen = useSyncExternalStore(
     subscribeBrowser,
@@ -57,21 +64,23 @@ export function Translator() {
   );
 
   const recognitionRef = useRef<SpeechRecognition | null>(null);
-  const copyTimer = useRef<number | null>(null);
+  const copyTimers = useRef<Partial<Record<LanguageId, number>>>({});
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioUrlRef = useRef<string | null>(null);
   const speakGen = useRef(0);
-  const azureState = useRef<{ known: boolean; ready: boolean }>({
-    known: false,
-    ready: false,
-  });
+  const speakStatus = useRef<{
+    known: boolean;
+    providers: Partial<Record<LanguageId, string | null>>;
+  }>({ known: false, providers: {} });
 
   useEffect(() => {
     return () => {
       recognitionRef.current?.abort();
       speakGen.current += 1;
       haltPlayback(audioRef, audioUrlRef);
-      if (copyTimer.current) window.clearTimeout(copyTimer.current);
+      for (const timer of Object.values(copyTimers.current)) {
+        if (timer) window.clearTimeout(timer);
+      }
     };
   }, []);
 
@@ -101,15 +110,15 @@ export function Translator() {
       .then(async (response) => {
         if (!response.ok) throw new Error("Speech status check failed");
         return (await response.json()) as {
-          configured?: boolean;
+          providers?: Partial<Record<LanguageId, string | null>>;
           voices?: Partial<Record<LanguageId, string>>;
         };
       })
       .then((data) => {
-        const configured = Boolean(data.configured);
-        azureState.current = { known: true, ready: configured };
-        setAzureReady(configured);
-        setAzureVoices(data.voices ?? {});
+        const nextProviders = data.providers ?? {};
+        speakStatus.current = { known: true, providers: nextProviders };
+        setProviders(nextProviders);
+        setVoices(data.voices ?? {});
       })
       .catch((fetchError: unknown) => {
         if (
@@ -118,16 +127,19 @@ export function Translator() {
         ) {
           return;
         }
-        setAzureReady(false);
+        speakStatus.current = { known: true, providers: {} };
+        setProviders({});
       });
 
     return () => controller.abort();
   }, []);
 
-  const target = LANGUAGES[language];
-  const resultLanguage = translation
-    ? LANGUAGES[translatedLanguage]
-    : LANGUAGES[language];
+  function updateSide(language: LanguageId, patch: Partial<Side>) {
+    setSides((current) => ({
+      ...current,
+      [language]: { ...current[language], ...patch },
+    }));
+  }
 
   async function onTranslate() {
     const source = text.trim();
@@ -135,40 +147,63 @@ export function Translator() {
 
     stopListening();
     stopSpeaking();
-    setError(null);
-    setVoiceNote(null);
-    setCopied(false);
+    for (const timer of Object.values(copyTimers.current)) {
+      if (timer) window.clearTimeout(timer);
+    }
+    copyTimers.current = {};
+    setInputError(null);
+    setSides({ naija: blankSide(), yoruba: blankSide() });
     setPhase("translating");
 
-    try {
-      const response = await fetch("/api/translate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: source, language }),
-      });
-      const data = (await response.json()) as {
-        translation?: string;
-        provider?: string;
-        error?: string;
-      };
+    const outcomes = await Promise.all(
+      LANGUAGE_IDS.map(async (language) => {
+        try {
+          const response = await fetch("/api/translate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: source, language }),
+          });
+          const data = (await response.json()) as {
+            translation?: string;
+            provider?: string;
+            error?: string;
+          };
+          if (!response.ok || !data.translation) {
+            throw new Error(data.error ?? "Translation failed.");
+          }
+          return {
+            language,
+            text: data.translation,
+            provider: data.provider ?? null,
+            error: null,
+          };
+        } catch (translateError) {
+          return {
+            language,
+            text: "",
+            provider: null,
+            error:
+              translateError instanceof Error
+                ? translateError.message
+                : "Translation failed.",
+          };
+        }
+      }),
+    );
 
-      if (!response.ok || !data.translation) {
-        throw new Error(data.error ?? "Translation failed.");
+    setSides((current) => {
+      const next = { ...current };
+      for (const outcome of outcomes) {
+        next[outcome.language] = {
+          ...current[outcome.language],
+          text: outcome.text,
+          provider: outcome.provider,
+          error: outcome.error,
+        };
       }
-
-      setTranslation(data.translation);
-      setTranslatedLanguage(language);
-      setProvider(data.provider ?? null);
-    } catch (translateError) {
-      setTranslation("");
-      setError(
-        translateError instanceof Error
-          ? translateError.message
-          : "Translation failed.",
-      );
-    } finally {
-      setPhase("idle");
-    }
+      return next;
+    });
+    setPhase("idle");
   }
 
   function toggleListening() {
@@ -182,38 +217,40 @@ export function Translator() {
     }
 
     stopSpeaking();
-    setError(null);
+    setInputError(null);
     setInterim("");
-    recognition.onresult = (event) => {
-      let finalText = "";
-      let interimText = "";
+    bindRecognition(recognition, {
+      onResult: (event) => {
+        let finalText = "";
+        let interimText = "";
 
-      for (let index = event.resultIndex; index < event.results.length; index++) {
-        const transcript = event.results[index]?.[0]?.transcript ?? "";
-        if (event.results[index]?.isFinal) finalText += transcript;
-        else interimText += transcript;
-      }
+        for (let index = event.resultIndex; index < event.results.length; index++) {
+          const transcript = event.results[index]?.[0]?.transcript ?? "";
+          if (event.results[index]?.isFinal) finalText += transcript;
+          else interimText += transcript;
+        }
 
-      if (finalText.trim()) {
-        setText((current) => joinTranscript(current, finalText));
-      }
-      setInterim(interimText);
-    };
-    recognition.onerror = (event) => {
-      if (event.error === "aborted" || event.error === "no-speech") return;
-      setError(recognitionErrorMessage(event.error));
-      setPhase("idle");
-    };
-    recognition.onend = () => {
-      setInterim("");
-      setPhase((current) => (current === "listening" ? "idle" : current));
-    };
+        if (finalText.trim()) {
+          setText((current) => joinTranscript(current, finalText));
+        }
+        setInterim(interimText);
+      },
+      onError: (event) => {
+        if (event.error === "aborted" || event.error === "no-speech") return;
+        setInputError(recognitionErrorMessage(event.error));
+        setPhase("idle");
+      },
+      onEnd: () => {
+        setInterim("");
+        setPhase((current) => (current === "listening" ? "idle" : current));
+      },
+    });
 
     try {
       recognition.start();
       setPhase("listening");
     } catch {
-      setError("The microphone is already in use. Stop it, then try again.");
+      setInputError("The microphone is already in use. Stop it, then try again.");
     }
   }
 
@@ -223,64 +260,66 @@ export function Translator() {
     setPhase((current) => (current === "listening" ? "idle" : current));
   }
 
-  async function loadAzureStatus() {
+  async function loadSpeakStatus() {
     try {
       const response = await fetch("/api/speak");
       if (!response.ok) throw new Error("Speech status check failed");
       const data = (await response.json()) as {
-        configured?: boolean;
+        providers?: Partial<Record<LanguageId, string | null>>;
         voices?: Partial<Record<LanguageId, string>>;
       };
-      const configured = Boolean(data.configured);
-      azureState.current = { known: true, ready: configured };
-      setAzureReady(configured);
-      setAzureVoices(data.voices ?? {});
-      return configured;
+      const nextProviders = data.providers ?? {};
+      speakStatus.current = { known: true, providers: nextProviders };
+      setProviders(nextProviders);
+      setVoices(data.voices ?? {});
+      return nextProviders;
     } catch {
-      azureState.current = { known: true, ready: false };
-      setAzureReady(false);
-      return false;
+      speakStatus.current = { known: true, providers: {} };
+      setProviders({});
+      return {};
     }
   }
 
-  async function onSpeak() {
-    if (!translation || translating) return;
+  async function onSpeak(language: LanguageId) {
+    const spoken = sides[language].text;
+    if (!spoken || phase === "translating") return;
 
     const generation = ++speakGen.current;
     haltPlayback(audioRef, audioUrlRef);
-    setError(null);
-    setPhase("speaking");
+    setSpeaking(language);
+    updateSide(language, { voiceNote: null, error: null });
 
-    const useAzure = azureState.current.known
-      ? azureState.current.ready
-      : await loadAzureStatus();
+    const knownProviders = speakStatus.current.known
+      ? speakStatus.current.providers
+      : await loadSpeakStatus();
     if (speakGen.current !== generation) return;
 
-    if (!useAzure && !canSpeak) {
-      setPhase("idle");
-      setVoiceNote("This browser could not play the translation.");
+    const useCloud = Boolean(knownProviders[language]);
+    if (!useCloud && !canSpeak) {
+      setSpeaking((current) => (current === language ? null : current));
+      updateSide(language, {
+        voiceNote: "This browser could not play the translation.",
+      });
       return;
     }
 
-    if (useAzure) {
-      const played = await speakWithAzure(
-        translation,
-        translatedLanguage,
-        generation,
-      );
+    if (useCloud) {
+      const played = await speakWithCloud(spoken, language, generation);
       if (played || speakGen.current !== generation) return;
     }
 
     if (!canSpeak) {
-      setPhase("idle");
-      setVoiceNote("This browser could not play the translation.");
+      setSpeaking((current) => (current === language ? null : current));
+      updateSide(language, {
+        voiceNote: "This browser could not play the translation.",
+      });
       return;
     }
 
-    await speakWithBrowser(translation, translatedLanguage, generation);
+    await speakWithBrowser(spoken, language, generation);
   }
 
-  async function speakWithAzure(
+  async function speakWithCloud(
     spoken: string,
     spokenLanguage: LanguageId,
     generation: number,
@@ -305,13 +344,15 @@ export function Translator() {
       const audio = new Audio(url);
       audioRef.current = audio;
       const voiceName =
-        azureVoices[spokenLanguage] ??
+        voices[spokenLanguage] ??
         (spokenLanguage === "yoruba" ? "sade" : "en-NG-EzinneNeural");
       const providerLabel = spokenLanguage === "yoruba" ? "Spitch" : "Azure";
-      setVoiceNote(`Speaking with ${providerLabel} ${voiceName}.`);
+      updateSide(spokenLanguage, {
+        voiceNote: `Speaking with ${providerLabel} ${voiceName}.`,
+      });
       audio.onended = () => {
         if (speakGen.current !== generation) return;
-        setPhase("idle");
+        setSpeaking((current) => (current === spokenLanguage ? null : current));
         releaseAudioUrl(audioUrlRef, url);
       };
       await audio.play();
@@ -331,10 +372,10 @@ export function Translator() {
     if (!synthesisSupported() || speakGen.current !== generation) return;
 
     window.speechSynthesis.cancel();
-    const voices = await loadVoices();
+    const available = await loadVoices();
     if (speakGen.current !== generation) return;
 
-    const choice = chooseVoice(spokenLanguage, voices);
+    const choice = chooseVoice(spokenLanguage, available);
     const utterance = new SpeechSynthesisUtterance(spoken);
     if (choice.voice) {
       utterance.voice = choice.voice;
@@ -344,80 +385,52 @@ export function Translator() {
     }
     utterance.rate = 0.95;
     utterance.onend = () => {
-      if (speakGen.current === generation) setPhase("idle");
+      if (speakGen.current === generation) {
+        setSpeaking((current) => (current === spokenLanguage ? null : current));
+      }
     };
     utterance.onerror = () => {
       if (speakGen.current !== generation) return;
-      setPhase("idle");
-      setVoiceNote("This browser could not play the translation.");
+      setSpeaking((current) => (current === spokenLanguage ? null : current));
+      updateSide(spokenLanguage, {
+        voiceNote: "This browser could not play the translation.",
+      });
     };
 
-    setVoiceNote(choice.note);
-    setPhase("speaking");
+    updateSide(spokenLanguage, { voiceNote: choice.note });
+    setSpeaking(spokenLanguage);
     window.speechSynthesis.speak(utterance);
   }
 
   function stopSpeaking() {
     speakGen.current += 1;
     haltPlayback(audioRef, audioUrlRef);
-    setPhase((current) => (current === "speaking" ? "idle" : current));
+    setSpeaking(null);
   }
 
-  async function onCopy() {
-    if (!translation) return;
+  async function onCopy(language: LanguageId) {
+    const value = sides[language].text;
+    if (!value) return;
     try {
-      await navigator.clipboard.writeText(translation);
-      setCopied(true);
-      if (copyTimer.current) window.clearTimeout(copyTimer.current);
-      copyTimer.current = window.setTimeout(() => setCopied(false), 2000);
+      await navigator.clipboard.writeText(value);
+      updateSide(language, { copied: true });
+      const existing = copyTimers.current[language];
+      if (existing) window.clearTimeout(existing);
+      copyTimers.current[language] = window.setTimeout(() => {
+        updateSide(language, { copied: false });
+      }, 2000);
     } catch {
-      setError("Copying was blocked by the browser.");
+      updateSide(language, { error: "Copying was blocked by the browser." });
     }
   }
 
-  const providerLabel = provider ? PROVIDER_LABELS[provider] ?? provider : null;
   const listening = phase === "listening";
   const translating = phase === "translating";
-  const canPlay = canSpeak || azureReady;
 
   return (
     <div className="flex flex-col gap-5">
       <section className="rounded-3xl border border-line bg-card p-4 shadow-[0_18px_50px_rgb(28_22_18_/_0.06)] sm:p-6">
-        <div
-          className="grid grid-cols-2 gap-2 rounded-2xl bg-paper p-1"
-          role="radiogroup"
-          aria-label="Translation language"
-        >
-          {(Object.keys(LANGUAGES) as LanguageId[]).map((id) => {
-            const item = LANGUAGES[id];
-            const selected = language === id;
-            return (
-              <button
-                key={id}
-                type="button"
-                role="radio"
-                aria-checked={selected}
-                onClick={() => setLanguage(id)}
-                className={`rounded-xl px-3 py-3 text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green ${
-                  selected
-                    ? "bg-green text-card"
-                    : "text-ink hover:bg-white"
-                }`}
-              >
-                <span className="block font-display text-2xl leading-none">
-                  {item.label}
-                </span>
-                <span
-                  className={`mt-1 block text-sm ${selected ? "text-card/80" : "text-muted"}`}
-                >
-                  {item.description}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-
-        <label htmlFor="english" className="mt-6 block text-sm font-semibold">
+        <label htmlFor="english" className="block text-sm font-semibold">
           English
         </label>
         <div className="relative mt-2">
@@ -458,7 +471,7 @@ export function Translator() {
             {listening
               ? interim || "Listening for English…"
               : canListen
-                ? "The microphone listens for English."
+                ? "The microphone listens for English and fills both translations."
                 : "This browser cannot use the microphone. Type instead."}
           </p>
           <p className="shrink-0 tabular-nums">
@@ -485,63 +498,14 @@ export function Translator() {
           disabled={translating || text.trim().length === 0}
           className="mt-5 flex h-12 w-full items-center justify-center rounded-2xl bg-green px-5 text-base font-semibold text-card hover:bg-green-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {translating ? "Translating…" : `Translate to ${target.label}`}
+          {translating ? "Translating…" : "Translate"}
         </button>
         <p className="mt-2 text-center text-sm text-muted">
           Shortcut: Ctrl or Command + Enter
         </p>
-      </section>
-
-      <section
-        className="rounded-3xl border border-line bg-card p-4 sm:p-6"
-        aria-live="polite"
-      >
-        <div className="flex items-baseline justify-between gap-3">
-          <h2 className="font-display text-3xl text-ink">{resultLanguage.label}</h2>
-          {providerLabel ? (
-            <p className="text-sm text-muted">via {providerLabel}</p>
-          ) : null}
-        </div>
-        <p
-          lang={resultLanguage.htmlLang}
-          className="mt-3 min-h-24 text-lg leading-relaxed whitespace-pre-wrap"
-        >
-          {translation || (
-            <span className="text-muted">
-              The {resultLanguage.description} translation will show up here.
-            </span>
-          )}
-        </p>
-        <div className="mt-4 flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => void onSpeak()}
-            disabled={!translation || !canPlay || translating}
-            className="rounded-full bg-green-ink px-4 py-2 text-sm font-semibold text-card hover:bg-green focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {phase === "speaking" ? "Speaking…" : "Speak"}
-          </button>
-          <button
-            type="button"
-            onClick={stopSpeaking}
-            disabled={phase !== "speaking"}
-            className="rounded-full border border-line px-4 py-2 text-sm font-semibold hover:bg-paper focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            Stop
-          </button>
-          <button
-            type="button"
-            onClick={() => void onCopy()}
-            disabled={!translation}
-            className="rounded-full border border-line px-4 py-2 text-sm font-semibold hover:bg-paper focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {copied ? "Copied" : "Copy"}
-          </button>
-        </div>
-        {voiceNote ? <p className="mt-3 text-sm text-gold">{voiceNote}</p> : null}
-        {error ? (
+        {inputError ? (
           <p role="alert" className="mt-3 text-sm text-clay">
-            {error}
+            {inputError}
           </p>
         ) : null}
         {ready && !ready.ready ? (
@@ -553,6 +517,79 @@ export function Translator() {
         ) : null}
       </section>
 
+      <div className="grid gap-5 md:grid-cols-2">
+        {LANGUAGE_IDS.map((language) => {
+          const item = LANGUAGES[language];
+          const side = sides[language];
+          const providerLabel = side.provider
+            ? (PROVIDER_LABELS[side.provider] ?? side.provider)
+            : null;
+          const thisSpeaking = speaking === language;
+          const canPlay = canSpeak || Boolean(providers[language]);
+          return (
+            <section
+              key={language}
+              className="rounded-3xl border border-line bg-card p-4 sm:p-6"
+              aria-live="polite"
+            >
+              <div className="flex items-baseline justify-between gap-3">
+                <h2 className="font-display text-3xl text-ink">{item.label}</h2>
+                {providerLabel ? (
+                  <p className="text-sm text-muted">via {providerLabel}</p>
+                ) : null}
+              </div>
+              <p
+                lang={item.htmlLang}
+                className="mt-3 min-h-24 text-lg leading-relaxed whitespace-pre-wrap"
+              >
+                {side.text || (
+                  <span className="text-muted">
+                    The {item.description} translation will show up here.
+                  </span>
+                )}
+              </p>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => void onSpeak(language)}
+                  disabled={!side.text || !canPlay || translating}
+                  aria-label={`Speak ${item.label}`}
+                  className="rounded-full bg-green-ink px-4 py-2 text-sm font-semibold text-card hover:bg-green focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {thisSpeaking ? "Speaking…" : "Speak"}
+                </button>
+                <button
+                  type="button"
+                  onClick={stopSpeaking}
+                  disabled={!thisSpeaking}
+                  aria-label={`Stop ${item.label}`}
+                  className="rounded-full border border-line px-4 py-2 text-sm font-semibold hover:bg-paper focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Stop
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void onCopy(language)}
+                  disabled={!side.text}
+                  aria-label={`Copy ${item.label}`}
+                  className="rounded-full border border-line px-4 py-2 text-sm font-semibold hover:bg-paper focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {side.copied ? "Copied" : "Copy"}
+                </button>
+              </div>
+              {side.voiceNote ? (
+                <p className="mt-3 text-sm text-gold">{side.voiceNote}</p>
+              ) : null}
+              {side.error ? (
+                <p role="alert" className="mt-3 text-sm text-clay">
+                  {side.error}
+                </p>
+              ) : null}
+            </section>
+          );
+        })}
+      </div>
+
       <section className="px-1 text-sm leading-relaxed text-muted">
         <h2 className="font-semibold text-ink">Browser speech</h2>
         <p className="mt-1">
@@ -560,13 +597,36 @@ export function Translator() {
           Edge can listen. Safari often cannot, Firefox support varies, and iOS
           is the most limited. Pigin does not upload microphone audio. When
           Spitch is configured, Yorùbá Speak plays that voice. When Azure
-          Speech is configured, Naijá Speak plays that voice. Otherwise Speak
-          uses this browser, which rarely has a Yorùbá voice and has no
+          Speech is configured, Naijá Speak plays that voice. Otherwise that
+          side uses this browser, which rarely has a Yorùbá voice and has no
           dedicated Naijá voice. See the README.
         </p>
       </section>
     </div>
   );
+}
+
+function bindRecognition(
+  recognition: SpeechRecognition,
+  handlers: {
+    onResult: (event: SpeechRecognitionEvent) => void;
+    onError: (event: SpeechRecognitionErrorEvent) => void;
+    onEnd: () => void;
+  },
+) {
+  recognition.onresult = handlers.onResult;
+  recognition.onerror = handlers.onError;
+  recognition.onend = handlers.onEnd;
+}
+
+function blankSide(): Side {
+  return {
+    text: "",
+    provider: null,
+    error: null,
+    voiceNote: null,
+    copied: false,
+  };
 }
 
 function haltPlayback(
