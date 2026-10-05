@@ -34,6 +34,7 @@ import {
   browserSpeechCard,
   cloudSpeakCard,
   playCloudMp3,
+  replayClip,
   setAudioSessionType,
   stopSpeaker,
 } from "@/lib/speak-playback";
@@ -47,6 +48,7 @@ import {
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 type Phase = "idle" | "listening" | "translating";
+type SpeechVia = "speak" | "replay";
 
 type ReadyState = {
   ready: boolean;
@@ -69,10 +71,31 @@ type SavedCloudAudio = {
   shareable: boolean;
 };
 
+type HistoryEntry = {
+  id: string;
+  english: string;
+  modelId: TranslationModelId;
+  status: "pending" | "ready";
+  sides: Record<LanguageId, Side>;
+};
+
+type SpeechTarget = {
+  entryId: string;
+  language: LanguageId;
+  via: SpeechVia;
+};
+
+type CloudAudioMap = Record<string, Partial<Record<LanguageId, SavedCloudAudio>>>;
+
 const PROVIDER_LABELS: Record<string, string> = {
   "ai-gateway": "AI Gateway",
   openai: "OpenAI",
   anthropic: "Anthropic",
+};
+
+const EMPTY_SIDES: Record<LanguageId, Side> = {
+  naija: blankSide(),
+  yoruba: blankSide(),
 };
 
 export function Translator() {
@@ -80,16 +103,14 @@ export function Translator() {
   const [modelId, setModelId] = useState<TranslationModelId>(
     DEFAULT_TRANSLATION_MODEL_ID,
   );
-  const [bookmarkNote, setBookmarkNote] = useState<string | null>(null);
+  const [bookmarkNoteId, setBookmarkNoteId] = useState<string | null>(null);
   const [interim, setInterim] = useState("");
-  const [sides, setSides] = useState<Record<LanguageId, Side>>({
-    naija: blankSide(),
-    yoruba: blankSide(),
-  });
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [openIds, setOpenIds] = useState<string[]>([]);
   const [inputError, setInputError] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
-  const [speaking, setSpeaking] = useState<LanguageId | null>(null);
-  const [preparing, setPreparing] = useState<LanguageId | null>(null);
+  const [speaking, setSpeaking] = useState<SpeechTarget | null>(null);
+  const [preparing, setPreparing] = useState<SpeechTarget | null>(null);
   const [ready, setReady] = useState<ReadyState | null>(null);
   const [voices, setVoices] = useState<Partial<Record<LanguageId, string>>>({});
   const [providers, setProviders] = useState<
@@ -107,25 +128,27 @@ export function Translator() {
   );
 
   const recognitionRef = useRef<SpeechRecognition | null>(null);
-  const copyTimers = useRef<Partial<Record<LanguageId, number>>>({});
+  const copyTimers = useRef<Record<string, number>>({});
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const cloudAudioRef = useRef<Partial<Record<LanguageId, SavedCloudAudio>>>({});
-  const [cloudAudio, setCloudAudio] = useState<
-    Partial<Record<LanguageId, SavedCloudAudio>>
-  >({});
+  const cloudAudioRef = useRef<CloudAudioMap>({});
+  const [cloudAudio, setCloudAudio] = useState<CloudAudioMap>({});
   const speakGen = useRef(0);
   const speechWatch = useRef<number | null>(null);
-  const resultRef = useRef<{
-    english: string;
-    modelId: TranslationModelId;
-  } | null>(null);
+  const inflightFetches = useRef(new Set<string>());
+  const historyRef = useRef(history);
+  const phaseRef = useRef(phase);
+  const voicesRef = useRef(voices);
   const speakStatus = useRef<{
     known: boolean;
     providers: Partial<Record<LanguageId, string | null>>;
   }>({ known: false, providers: {} });
+  historyRef.current = history;
+  phaseRef.current = phase;
+  voicesRef.current = voices;
 
   useEffect(() => {
     const saved = cloudAudioRef;
+    const timers = copyTimers.current;
     return () => {
       recognitionRef.current?.abort();
       speakGen.current += 1;
@@ -136,8 +159,8 @@ export function Translator() {
       setAudioSessionType(audioSessionOf(navigator), IDLE_SESSION);
       releaseCloudAudio(saved.current);
       saved.current = {};
-      for (const timer of Object.values(copyTimers.current)) {
-        if (timer) window.clearTimeout(timer);
+      for (const timer of Object.values(timers)) {
+        window.clearTimeout(timer);
       }
     };
   }, []);
@@ -192,43 +215,44 @@ export function Translator() {
     return () => controller.abort();
   }, []);
 
-  function updateSide(language: LanguageId, patch: Partial<Side>) {
-    setSides((current) => ({
-      ...current,
-      [language]: { ...current[language], ...patch },
-    }));
+  function updateEntry(entryId: string, language: LanguageId, patch: Partial<Side>) {
+    setHistory((current) =>
+      current.map((entry) =>
+        entry.id === entryId
+          ? {
+              ...entry,
+              sides: {
+                ...entry.sides,
+                [language]: { ...entry.sides[language], ...patch },
+              },
+            }
+          : entry,
+      ),
+    );
   }
 
-  function publishCloudAudio(
-    next: Partial<Record<LanguageId, SavedCloudAudio>>,
-  ) {
+  function publishCloudAudio(next: CloudAudioMap) {
     cloudAudioRef.current = next;
     setCloudAudio(next);
   }
 
-  function forgetCloudAudio(language: LanguageId) {
-    const previous = cloudAudioRef.current[language];
-    if (!previous) return;
-    URL.revokeObjectURL(previous.url);
-    const next = { ...cloudAudioRef.current };
-    delete next[language];
-    publishCloudAudio(next);
-  }
-
-  function forgetAllCloudAudio() {
-    releaseCloudAudio(cloudAudioRef.current);
-    publishCloudAudio({});
-  }
-
-  function commitCloudAudio(language: LanguageId, file: File, url: string) {
-    const previous = cloudAudioRef.current[language];
+  function commitCloudAudio(
+    entryId: string,
+    language: LanguageId,
+    file: File,
+    url: string,
+  ) {
+    const previous = cloudAudioRef.current[entryId]?.[language];
     if (previous && previous.url !== url) URL.revokeObjectURL(previous.url);
     publishCloudAudio({
       ...cloudAudioRef.current,
-      [language]: {
-        url,
-        file,
-        shareable: canShareAudioFile(file),
+      [entryId]: {
+        ...cloudAudioRef.current[entryId],
+        [language]: {
+          url,
+          file,
+          shareable: canShareAudioFile(file),
+        },
       },
     });
   }
@@ -239,16 +263,19 @@ export function Translator() {
 
     stopListening();
     stopSpeaking();
-    forgetAllCloudAudio();
-    for (const timer of Object.values(copyTimers.current)) {
-      if (timer) window.clearTimeout(timer);
-    }
-    copyTimers.current = {};
     setInputError(null);
-    setBookmarkNote(null);
-    setSides({ naija: blankSide(), yoruba: blankSide() });
+    setBookmarkNoteId(null);
+    const id = crypto.randomUUID();
+    const entry: HistoryEntry = {
+      id,
+      english: source,
+      modelId,
+      status: "pending",
+      sides: { naija: blankSide(), yoruba: blankSide() },
+    };
+    setHistory((current) => [entry, ...current]);
+    setOpenIds([]);
     setPhase("translating");
-    resultRef.current = { english: source, modelId };
 
     const outcomes = await Promise.all(
       LANGUAGE_IDS.map(async (language) => {
@@ -289,19 +316,22 @@ export function Translator() {
       }),
     );
 
-    setSides((current) => {
-      const next = { ...current };
-      for (const outcome of outcomes) {
-        next[outcome.language] = {
-          ...current[outcome.language],
-          text: outcome.text,
-          provider: outcome.provider,
-          model: outcome.model,
-          error: outcome.error,
-        };
-      }
-      return next;
-    });
+    setHistory((current) =>
+      current.map((item) => {
+        if (item.id !== id) return item;
+        const sides = { ...item.sides };
+        for (const outcome of outcomes) {
+          sides[outcome.language] = {
+            ...sides[outcome.language],
+            text: outcome.text,
+            provider: outcome.provider,
+            model: outcome.model,
+            error: outcome.error,
+          };
+        }
+        return { ...item, status: "ready" as const, sides };
+      }),
+    );
     setPhase("idle");
   }
 
@@ -353,27 +383,35 @@ export function Translator() {
     }
   }
 
-  function onBookmark() {
-    const result = resultRef.current;
-    if (!result || (!sides.naija.text && !sides.yoruba.text)) return;
-    const model = translationModelById(result.modelId);
+  function onBookmark(entryId: string) {
+    const entry = historyRef.current.find((item) => item.id === entryId);
+    if (!entry || (!entry.sides.naija.text && !entry.sides.yoruba.text)) return;
+    const model = translationModelById(entry.modelId);
     addCatalogItem({
       id: crypto.randomUUID(),
-      english: result.english,
-      naija: sides.naija.text,
-      yoruba: sides.yoruba.text,
+      english: entry.english,
+      naija: entry.sides.naija.text,
+      yoruba: entry.sides.yoruba.text,
       modelId: model.id,
       modelLabel: model.label,
       savedAt: new Date().toISOString(),
       correction: null,
     });
-    setBookmarkNote("Saved in this browser.");
+    setBookmarkNoteId(entryId);
   }
 
   function stopListening() {
     recognitionRef.current?.stop();
     setInterim("");
     setPhase((current) => (current === "listening" ? "idle" : current));
+  }
+
+  function toggleOpen(entryId: string) {
+    setOpenIds((current) =>
+      current.includes(entryId)
+        ? current.filter((id) => id !== entryId)
+        : [...current, entryId],
+    );
   }
 
   async function loadSpeakStatus() {
@@ -396,67 +434,11 @@ export function Translator() {
     }
   }
 
-  async function onSpeak(language: LanguageId) {
-    const spoken = sides[language].text;
-    if (!spoken || phase === "translating") return;
-
-    const generation = ++speakGen.current;
-    clearSpeechWatch(speechWatch);
-    haltPlayback(audioRef);
-    forgetCloudAudio(language);
-    setSpeaking(null);
-    setPreparing(language);
-    updateSide(language, {
-      voiceNote: null,
-      error: null,
-      audioHint: SPEAK_WAITING,
-    });
-
-    const speaker = audioRef.current ?? document.createElement("audio");
-    audioRef.current = speaker;
-    // Arm before any await so iOS still treats the later MP3 as this click.
-    armSpeaker(speaker, document.body);
-
-    const knownProviders = speakStatus.current.known
-      ? speakStatus.current.providers
-      : await loadSpeakStatus();
-    if (speakGen.current !== generation) return;
-
-    const useCloud = Boolean(knownProviders[language]);
-    if (!useCloud && !canSpeak) {
-      stopSpeaker(speaker);
-      setPreparing((current) => (current === language ? null : current));
-      updateSide(language, {
-        voiceNote: BROWSER_PLAYBACK_FAILED,
-        audioHint: null,
-      });
-      return;
-    }
-
-    if (useCloud) {
-      const outcome = await speakWithCloud(spoken, language, generation);
-      if (outcome !== "fallback" || speakGen.current !== generation) return;
-      updateSide(language, { audioHint: CLOUD_AUDIO_MISSING });
-    }
-
-    if (!canSpeak) {
-      stopSpeaker(audioRef.current);
-      setPreparing((current) => (current === language ? null : current));
-      updateSide(language, {
-        voiceNote: BROWSER_PLAYBACK_FAILED,
-        audioHint: useCloud ? CLOUD_AUDIO_MISSING : null,
-      });
-      return;
-    }
-
-    await speakWithBrowser(spoken, language, generation);
-  }
-
-  async function speakWithCloud(
+  async function fetchCloudClip(
     spoken: string,
     spokenLanguage: LanguageId,
     generation: number,
-  ): Promise<"settled" | "fallback" | "stale"> {
+  ): Promise<SavedCloudAudio | null> {
     let playbackUrl: string | null = null;
     let transferred = false;
     try {
@@ -465,84 +447,215 @@ export function Translator() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: spoken, language: spokenLanguage }),
       });
-      if (speakGen.current !== generation) return "stale";
+      if (speakGen.current !== generation) return null;
       const contentType = response.headers.get("content-type") ?? "";
-      if (!response.ok || !contentType.startsWith("audio/")) return "fallback";
+      if (!response.ok || !contentType.startsWith("audio/")) return null;
 
       const blob = await response.blob();
-      if (speakGen.current !== generation) return "stale";
-      const file = audioFileForSpeak(
-        "cloud",
-        spokenLanguage,
-        blob,
-        contentType,
-      );
-      if (!file) return "fallback";
+      if (speakGen.current !== generation) return null;
+      const file = audioFileForSpeak("cloud", spokenLanguage, blob, contentType);
+      if (!file) return null;
 
       playbackUrl = URL.createObjectURL(file);
-      if (speakGen.current !== generation) return "stale";
-
-      const speaker = audioRef.current;
-      const started = speaker
-        ? await playCloudMp3(speaker, playbackUrl)
-        : false;
-      if (speakGen.current !== generation) return "stale";
-
-      const voiceName =
-        voices[spokenLanguage] ??
-        (spokenLanguage === "yoruba" ? "sade" : "en-NG-EzinneNeural");
-      const providerLabel = spokenLanguage === "yoruba" ? "Spitch" : "Azure";
-      const card = cloudSpeakCard({
-        receivedAudio: true,
-        playbackStarted: started,
-        providerLabel,
-        voiceName,
-      });
-
-      if (card.offerFile) {
-        commitCloudAudio(spokenLanguage, file, playbackUrl);
-        transferred = true;
-      } else {
-        stopSpeaker(speaker);
-      }
-
-      setPreparing((current) => (current === spokenLanguage ? null : current));
-      setSpeaking(card.speaking ? spokenLanguage : null);
-      if (!card.speaking) {
-        setAudioSessionType(audioSessionOf(navigator), IDLE_SESSION);
-      }
-      updateSide(spokenLanguage, {
-        voiceNote: card.voiceNote,
-        audioHint: card.audioHint,
-        error: card.error,
-      });
-
-      if (card.speaking && speaker) {
-        speaker.onended = () => {
-          if (speakGen.current !== generation) return;
-          setSpeaking((current) =>
-            current === spokenLanguage ? null : current,
-          );
-          setAudioSessionType(audioSessionOf(navigator), IDLE_SESSION);
-        };
-      } else {
-        stopSpeaker(speaker);
-      }
-
-      return card.useBrowserVoice ? "fallback" : "settled";
+      if (speakGen.current !== generation) return null;
+      transferred = true;
+      return {
+        url: playbackUrl,
+        file,
+        shareable: canShareAudioFile(file),
+      };
     } catch {
-      if (speakGen.current !== generation) return "stale";
-      stopSpeaker(audioRef.current);
-      return "fallback";
+      return null;
     } finally {
       if (playbackUrl && !transferred) URL.revokeObjectURL(playbackUrl);
     }
   }
 
+  async function settleCloud(
+    entryId: string,
+    spokenLanguage: LanguageId,
+    spoken: string,
+    generation: number,
+    via: SpeechVia,
+    existing: SavedCloudAudio | null,
+  ): Promise<"settled" | "fallback" | "stale"> {
+    const outcome = await replayClip({
+      saved: existing,
+      fetchClip: () => fetchCloudClip(spoken, spokenLanguage, generation),
+      play: (clip) => {
+        const active = audioRef.current;
+        if (!active || speakGen.current !== generation) return Promise.resolve(false);
+        return playCloudMp3(active, clip.url);
+      },
+    });
+
+    if (speakGen.current !== generation) {
+      if (outcome.fetched && outcome.clip) URL.revokeObjectURL(outcome.clip.url);
+      return "stale";
+    }
+
+    if (!outcome.clip) {
+      stopSpeaker(audioRef.current);
+      return "fallback";
+    }
+
+    const voiceName =
+      voicesRef.current[spokenLanguage] ??
+      (spokenLanguage === "yoruba" ? "sade" : "en-NG-EzinneNeural");
+    const providerLabel = spokenLanguage === "yoruba" ? "Spitch" : "Azure";
+    const card = cloudSpeakCard({
+      receivedAudio: true,
+      playbackStarted: outcome.started,
+      providerLabel,
+      voiceName,
+    });
+
+    if (card.offerFile) {
+      commitCloudAudio(entryId, spokenLanguage, outcome.clip.file, outcome.clip.url);
+    } else if (outcome.fetched) {
+      URL.revokeObjectURL(outcome.clip.url);
+    }
+
+    const speaker = audioRef.current;
+    setPreparing((current) =>
+      matchesSpeech(current, entryId, spokenLanguage) ? null : current,
+    );
+    setSpeaking(card.speaking ? { entryId, language: spokenLanguage, via } : null);
+    if (!card.speaking) {
+      setAudioSessionType(audioSessionOf(navigator), IDLE_SESSION);
+    }
+    updateEntry(entryId, spokenLanguage, {
+      voiceNote: card.voiceNote,
+      audioHint: card.audioHint,
+      error: card.error,
+    });
+
+    if (card.speaking && speaker) {
+      speaker.onended = () => {
+        if (speakGen.current !== generation) return;
+        setSpeaking((current) =>
+          matchesSpeech(current, entryId, spokenLanguage) ? null : current,
+        );
+        setAudioSessionType(audioSessionOf(navigator), IDLE_SESSION);
+      };
+    } else {
+      stopSpeaker(speaker);
+    }
+
+    return card.useBrowserVoice ? "fallback" : "settled";
+  }
+
+  async function speakEntry(
+    entryId: string,
+    language: LanguageId,
+    via: SpeechVia,
+  ) {
+    const entry = historyRef.current.find((item) => item.id === entryId);
+    const spoken = entry?.sides[language].text;
+    if (!entry || entry.status !== "ready" || !spoken || phaseRef.current === "translating") {
+      return;
+    }
+
+    const saved =
+      via === "replay" ? (cloudAudioRef.current[entryId]?.[language] ?? null) : null;
+    const fetchKey = `${entryId}:${language}`;
+    if (!saved && via === "replay" && inflightFetches.current.has(fetchKey)) return;
+
+    const generation = ++speakGen.current;
+    clearSpeechWatch(speechWatch);
+    haltPlayback(audioRef);
+    setSpeaking(null);
+    setPreparing(null);
+
+    const speaker = audioRef.current ?? document.createElement("audio");
+    audioRef.current = speaker;
+    // Arm before any await so iOS still treats the later MP3 as this click.
+    armSpeaker(speaker, document.body);
+
+    if (saved) {
+      updateEntry(entryId, language, {
+        voiceNote: null,
+        error: null,
+        audioHint: null,
+      });
+      await settleCloud(entryId, language, spoken, generation, via, saved);
+      return;
+    }
+
+    if (via === "replay") inflightFetches.current.add(fetchKey);
+    try {
+      await speakFromProvider(entryId, language, spoken, generation, via);
+    } finally {
+      if (via === "replay") inflightFetches.current.delete(fetchKey);
+    }
+  }
+
+  async function speakFromProvider(
+    entryId: string,
+    language: LanguageId,
+    spoken: string,
+    generation: number,
+    via: SpeechVia,
+  ) {
+    setPreparing({ entryId, language, via });
+    updateEntry(entryId, language, {
+      voiceNote: null,
+      error: null,
+      audioHint: SPEAK_WAITING,
+    });
+
+    const knownProviders = speakStatus.current.known
+      ? speakStatus.current.providers
+      : await loadSpeakStatus();
+    if (speakGen.current !== generation) return;
+
+    const useCloud = Boolean(knownProviders[language]);
+    if (!useCloud && !canSpeak) {
+      stopSpeaker(audioRef.current);
+      setPreparing((current) =>
+        matchesSpeech(current, entryId, language) ? null : current,
+      );
+      updateEntry(entryId, language, {
+        voiceNote: BROWSER_PLAYBACK_FAILED,
+        audioHint: null,
+      });
+      return;
+    }
+
+    if (useCloud) {
+      const outcome = await settleCloud(
+        entryId,
+        language,
+        spoken,
+        generation,
+        via,
+        null,
+      );
+      if (outcome !== "fallback" || speakGen.current !== generation) return;
+      updateEntry(entryId, language, { audioHint: CLOUD_AUDIO_MISSING });
+    }
+
+    if (!canSpeak) {
+      stopSpeaker(audioRef.current);
+      setPreparing((current) =>
+        matchesSpeech(current, entryId, language) ? null : current,
+      );
+      updateEntry(entryId, language, {
+        voiceNote: BROWSER_PLAYBACK_FAILED,
+        audioHint: useCloud ? CLOUD_AUDIO_MISSING : null,
+      });
+      return;
+    }
+
+    await speakWithBrowser(entryId, spoken, language, generation, via);
+  }
+
   async function speakWithBrowser(
+    entryId: string,
     spoken: string,
     spokenLanguage: LanguageId,
     generation: number,
+    via: SpeechVia,
   ) {
     if (!synthesisSupported() || speakGen.current !== generation) return;
 
@@ -562,36 +675,46 @@ export function Translator() {
     }
     utterance.rate = 0.95;
 
-    let phase: "wait" | "started" | "failed" = "wait";
+    let speechPhase: "wait" | "started" | "failed" = "wait";
     const apply = (event: "start" | "end" | "error" | "timeout") => {
-      if (speakGen.current !== generation || phase === "failed") return;
-      if (event === "timeout" && phase === "started") return;
-      if (event === "end" && phase !== "started") return;
-      if (event === "start" && phase !== "wait") return;
+      if (speakGen.current !== generation || speechPhase === "failed") return;
+      if (event === "timeout" && speechPhase === "started") return;
+      if (event === "end" && speechPhase !== "started") return;
+      if (event === "start" && speechPhase !== "wait") return;
 
       const card = browserSpeechCard(event, choice.note);
-      if (event === "start") phase = "started";
+      if (event === "start") speechPhase = "started";
       if (event === "error" || event === "timeout") {
-        phase = "failed";
+        speechPhase = "failed";
         clearSpeechWatch(speechWatch);
         if (event === "timeout") window.speechSynthesis.cancel();
       }
       if (event === "end" || event === "start") clearSpeechWatch(speechWatch);
 
-      setPreparing((current) => (current === spokenLanguage ? null : current));
-      setSpeaking(card.speaking ? spokenLanguage : null);
-      setSides((current) => ({
-        ...current,
-        [spokenLanguage]: {
-          ...current[spokenLanguage],
-          voiceNote: card.voiceNote,
-          error: card.error,
-          audioHint:
-            current[spokenLanguage].audioHint === SPEAK_WAITING
-              ? null
-              : current[spokenLanguage].audioHint,
-        },
-      }));
+      setPreparing((current) =>
+        matchesSpeech(current, entryId, spokenLanguage) ? null : current,
+      );
+      setSpeaking(
+        card.speaking ? { entryId, language: spokenLanguage, via } : null,
+      );
+      setHistory((current) =>
+        current.map((item) => {
+          if (item.id !== entryId) return item;
+          const side = item.sides[spokenLanguage];
+          return {
+            ...item,
+            sides: {
+              ...item.sides,
+              [spokenLanguage]: {
+                ...side,
+                voiceNote: card.voiceNote,
+                error: card.error,
+                audioHint: side.audioHint === SPEAK_WAITING ? null : side.audioHint,
+              },
+            },
+          };
+        }),
+      );
       if (!card.speaking) {
         setAudioSessionType(audioSessionOf(navigator), IDLE_SESSION);
       }
@@ -617,32 +740,37 @@ export function Translator() {
     setPreparing(null);
   }
 
-  function onDownloadAudio(language: LanguageId) {
-    const saved = cloudAudioRef.current[language];
+  function onDownloadAudio(entryId: string, language: LanguageId) {
+    const saved = cloudAudioRef.current[entryId]?.[language];
     if (!saved) return;
     downloadAudioFile(saved.url, saved.file.name);
   }
 
-  async function onShareAudio(language: LanguageId) {
-    const saved = cloudAudioRef.current[language];
+  async function onShareAudio(entryId: string, language: LanguageId) {
+    const saved = cloudAudioRef.current[entryId]?.[language];
     if (!saved) return;
     const result = await shareSpokenAudio(saved.file);
     if (result === "unavailable") downloadAudioFile(saved.url, saved.file.name);
   }
 
-  async function onCopy(language: LanguageId) {
-    const value = sides[language].text;
+  async function onCopy(entryId: string, language: LanguageId) {
+    const value = historyRef.current.find((item) => item.id === entryId)?.sides[
+      language
+    ].text;
     if (!value) return;
     try {
       await navigator.clipboard.writeText(value);
-      updateSide(language, { copied: true });
-      const existing = copyTimers.current[language];
+      updateEntry(entryId, language, { copied: true });
+      const key = `${entryId}:${language}`;
+      const existing = copyTimers.current[key];
       if (existing) window.clearTimeout(existing);
-      copyTimers.current[language] = window.setTimeout(() => {
-        updateSide(language, { copied: false });
+      copyTimers.current[key] = window.setTimeout(() => {
+        updateEntry(entryId, language, { copied: false });
       }, 2000);
     } catch {
-      updateSide(language, { error: "Copying was blocked by the browser." });
+      updateEntry(entryId, language, {
+        error: "Copying was blocked by the browser.",
+      });
     }
   }
 
@@ -771,134 +899,103 @@ export function Translator() {
         ) : null}
       </section>
 
-      <div className="grid gap-5 md:grid-cols-2">
-        {LANGUAGE_IDS.map((language) => {
-          const item = LANGUAGES[language];
-          const side = sides[language];
-          const providerLabel = side.provider
-            ? (PROVIDER_LABELS[side.provider] ?? side.provider)
-            : null;
-          const modelLabel =
-            side.model && isTranslationModelId(side.model)
-              ? translationModelById(side.model).label
-              : side.model;
-          const thisSpeaking = speaking === language;
-          const thisPreparing = preparing === language;
-          const canPlay = canSpeak || Boolean(providers[language]);
-          const saved = cloudAudio[language];
-          return (
-            <section
-              key={language}
-              className="rounded-3xl border border-line bg-card p-4 sm:p-6"
-              aria-live="polite"
-            >
-              <div className="flex items-baseline justify-between gap-3">
-                <h2 className="font-display text-3xl text-ink">{item.label}</h2>
-                {providerLabel ? (
-                  <p className="text-right text-sm text-muted">
-                    via {providerLabel}
-                    {modelLabel ? ` · ${modelLabel}` : ""}
-                  </p>
-                ) : null}
-              </div>
-              <p
-                lang={item.htmlLang}
-                className="mt-3 min-h-24 text-lg leading-relaxed whitespace-pre-wrap"
+      {history.length === 0 ? (
+        <>
+          <LanguageCards
+            entryId={null}
+            status="placeholder"
+            sides={EMPTY_SIDES}
+            clips={{}}
+            speaking={speaking}
+            preparing={preparing}
+            canSpeak={canSpeak}
+            providers={providers}
+            translating={translating}
+            showReplay={false}
+            live
+            onSpeak={() => {}}
+            onReplay={() => {}}
+            onStop={stopSpeaking}
+            onCopy={() => {}}
+            onDownload={() => {}}
+            onShare={() => {}}
+          />
+          <BookmarkControl
+            disabled
+            noted={false}
+            onBookmark={() => {}}
+          />
+        </>
+      ) : (
+        <ol className="flex flex-col gap-4" aria-label="Translations">
+          {history.map((entry, index) => {
+            const expanded = index === 0 || openIds.includes(entry.id);
+            const speechActive =
+              speaking?.entryId === entry.id || preparing?.entryId === entry.id;
+            return expanded ? (
+              <li
+                key={entry.id}
+                id={`translation-${entry.id}`}
+                className="flex flex-col gap-5"
               >
-                {side.text || (
-                  <span className="text-muted">
-                    The {item.description} translation will show up here.
-                  </span>
-                )}
-              </p>
-              <div className="mt-4 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => void onSpeak(language)}
-                  disabled={!side.text || !canPlay || translating || thisPreparing}
-                  aria-busy={thisPreparing}
-                  aria-label={`Speak ${item.label}`}
-                  className="rounded-full bg-green-ink px-4 py-2 text-sm font-semibold text-card hover:bg-green focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  {thisSpeaking ? "Speaking…" : "Speak"}
-                </button>
-                <button
-                  type="button"
-                  onClick={stopSpeaking}
-                  disabled={!thisSpeaking && !thisPreparing}
-                  aria-label={`Stop ${item.label}`}
-                  className="rounded-full border border-line px-4 py-2 text-sm font-semibold hover:bg-paper focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  Stop
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void onCopy(language)}
-                  disabled={!side.text}
-                  aria-label={`Copy ${item.label}`}
-                  className="rounded-full border border-line px-4 py-2 text-sm font-semibold hover:bg-paper focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  {side.copied ? "Copied" : "Copy"}
-                </button>
-                {saved ? (
-                  <button
-                    type="button"
-                    onClick={() => onDownloadAudio(language)}
-                    aria-label={`Download ${item.label} audio`}
-                    title="Download an MP3 you can attach in WhatsApp or Messages"
-                    className="rounded-full border border-line px-4 py-2 text-sm font-semibold hover:bg-paper focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green"
-                  >
-                    Download
-                  </button>
-                ) : null}
-                {saved?.shareable ? (
-                  <button
-                    type="button"
-                    onClick={() => void onShareAudio(language)}
-                    aria-label={`Share ${item.label} audio`}
-                    title="Open the share sheet to attach this MP3"
-                    className="rounded-full border border-line px-4 py-2 text-sm font-semibold hover:bg-paper focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green"
-                  >
-                    Share
-                  </button>
-                ) : null}
-              </div>
-              {saved ? (
-                <p className="mt-3 text-sm text-muted">
-                  This MP3 can be attached in WhatsApp or Messages.
-                </p>
-              ) : null}
-              {side.voiceNote ? (
-                <p className="mt-3 text-sm text-gold">{side.voiceNote}</p>
-              ) : null}
-              {side.audioHint ? (
-                <p className="mt-2 text-sm text-muted">{side.audioHint}</p>
-              ) : null}
-              {side.error ? (
-                <p role="alert" className="mt-3 text-sm text-clay">
-                  {side.error}
-                </p>
-              ) : null}
-            </section>
-          );
-        })}
-      </div>
-
-      <div className="flex flex-col items-start gap-2">
-        <button
-          type="button"
-          onClick={onBookmark}
-          disabled={translating || (!sides.naija.text && !sides.yoruba.text)}
-          className="rounded-full border border-line bg-card px-4 py-2 text-sm font-semibold hover:bg-paper focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          Bookmark this translation
-        </button>
-        {bookmarkNote ? (
-          <p aria-live="polite" className="text-sm text-green-ink">
-            {bookmarkNote}
-          </p>
-        ) : null}
-      </div>
+                <div className="flex items-start justify-between gap-3 px-1">
+                  <p className="min-w-0 text-sm leading-relaxed">
+                    <span className="font-semibold text-ink">English</span>
+                    <span className="mt-1 block text-base whitespace-pre-wrap text-ink">
+                      {entry.english}
+                    </span>
+                  </p>
+                  {index === 0 ? null : (
+                    <button
+                      type="button"
+                      onClick={() => toggleOpen(entry.id)}
+                      aria-expanded={true}
+                      className="shrink-0 rounded-full border border-line bg-card px-3 py-1.5 text-sm font-semibold hover:bg-paper focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green"
+                    >
+                      Show less
+                    </button>
+                  )}
+                </div>
+                <LanguageCards
+                  entryId={entry.id}
+                  status={entry.status}
+                  sides={entry.sides}
+                  clips={cloudAudio[entry.id] ?? {}}
+                  speaking={speaking}
+                  preparing={preparing}
+                  canSpeak={canSpeak}
+                  providers={providers}
+                  translating={translating}
+                  showReplay
+                  live={index === 0}
+                  onSpeak={(language) => void speakEntry(entry.id, language, "speak")}
+                  onReplay={(language) => void speakEntry(entry.id, language, "replay")}
+                  onStop={stopSpeaking}
+                  onCopy={(language) => void onCopy(entry.id, language)}
+                  onDownload={(language) => onDownloadAudio(entry.id, language)}
+                  onShare={(language) => void onShareAudio(entry.id, language)}
+                />
+                <BookmarkControl
+                  disabled={
+                    entry.status !== "ready" ||
+                    (!entry.sides.naija.text && !entry.sides.yoruba.text)
+                  }
+                  noted={bookmarkNoteId === entry.id}
+                  onBookmark={() => onBookmark(entry.id)}
+                />
+              </li>
+            ) : (
+              <CompactHistoryRow
+                key={entry.id}
+                entry={entry}
+                speechActive={speechActive}
+                onOpen={toggleOpen}
+                onStop={stopSpeaking}
+              />
+            );
+          })}
+        </ol>
+      )}
 
       <SavedCatalog />
 
@@ -910,12 +1007,259 @@ export function Translator() {
           is the most limited. Pigin does not upload microphone audio. When
           Spitch is configured, Yorùbá Speak plays that voice. When Azure
           Speech is configured, Naijá Speak plays that voice. After that voice
-          plays, download the MP3 or share it to attach in WhatsApp or
+          plays, Replay plays that recording again without requesting another
+          one. If it has not been fetched yet, Replay fetches it once and then
+          keeps it. Download or share can attach the MP3 in WhatsApp or
           Messages. If Speak uses this browser instead, there is no audio
-          file. This browser rarely has a Yorùbá voice and has no dedicated
-          Naijá voice. See the README.
+          file. This browser
+          rarely has a Yorùbá voice and has no dedicated Naijá voice. See the
+          README.
         </p>
       </section>
+    </div>
+  );
+}
+
+function LanguageCards({
+  entryId,
+  status,
+  sides,
+  clips,
+  speaking,
+  preparing,
+  canSpeak,
+  providers,
+  translating,
+  showReplay,
+  live,
+  onSpeak,
+  onReplay,
+  onStop,
+  onCopy,
+  onDownload,
+  onShare,
+}: {
+  entryId: string | null;
+  status: "placeholder" | "pending" | "ready";
+  sides: Record<LanguageId, Side>;
+  clips: Partial<Record<LanguageId, SavedCloudAudio>>;
+  speaking: SpeechTarget | null;
+  preparing: SpeechTarget | null;
+  canSpeak: boolean;
+  providers: Partial<Record<LanguageId, string | null>>;
+  translating: boolean;
+  showReplay: boolean;
+  live: boolean;
+  onSpeak: (language: LanguageId) => void;
+  onReplay: (language: LanguageId) => void;
+  onStop: () => void;
+  onCopy: (language: LanguageId) => void;
+  onDownload: (language: LanguageId) => void;
+  onShare: (language: LanguageId) => void;
+}) {
+  return (
+    <div className="grid gap-5 md:grid-cols-2">
+      {LANGUAGE_IDS.map((language) => {
+        const item = LANGUAGES[language];
+        const side = sides[language];
+        const providerLabel = side.provider
+          ? (PROVIDER_LABELS[side.provider] ?? side.provider)
+          : null;
+        const modelLabel =
+          side.model && isTranslationModelId(side.model)
+            ? translationModelById(side.model).label
+            : side.model;
+        const thisSpeaking = matchesSpeech(speaking, entryId, language);
+        const thisPreparing = matchesSpeech(preparing, entryId, language);
+        const canPlay = canSpeak || Boolean(providers[language]);
+        const saved = clips[language];
+        const canReplay = Boolean(saved) || canPlay;
+        const speakLabel = thisSpeaking && speaking?.via === "speak";
+        const replayLabel = thisSpeaking && speaking?.via === "replay";
+        return (
+          <section
+            key={language}
+            className="rounded-3xl border border-line bg-card p-4 sm:p-6"
+            aria-live={live ? "polite" : undefined}
+          >
+            <div className="flex items-baseline justify-between gap-3">
+              <h2 className="font-display text-3xl text-ink">{item.label}</h2>
+              {providerLabel ? (
+                <p className="text-right text-sm text-muted">
+                  via {providerLabel}
+                  {modelLabel ? ` · ${modelLabel}` : ""}
+                </p>
+              ) : null}
+            </div>
+            <p
+              lang={item.htmlLang}
+              className="mt-3 min-h-24 text-lg leading-relaxed whitespace-pre-wrap"
+            >
+              {side.text ? (
+                side.text
+              ) : (
+                <span className="text-muted">
+                  {status === "pending"
+                    ? "Translating…"
+                    : `The ${item.description} translation will show up here.`}
+                </span>
+              )}
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => onSpeak(language)}
+                disabled={!side.text || !canPlay || translating || thisPreparing}
+                aria-busy={thisPreparing && preparing?.via === "speak"}
+                aria-label={`Speak ${item.label}`}
+                className="rounded-full bg-green-ink px-4 py-2 text-sm font-semibold text-card hover:bg-green focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {speakLabel ? "Speaking…" : "Speak"}
+              </button>
+              {showReplay ? (
+                <button
+                  type="button"
+                  onClick={() => onReplay(language)}
+                  disabled={!side.text || !canReplay || translating || thisPreparing}
+                  aria-busy={thisPreparing && preparing?.via === "replay"}
+                  aria-label={`Replay ${item.label}`}
+                  className="rounded-full border border-line px-4 py-2 text-sm font-semibold hover:bg-paper focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {replayLabel ? "Replaying…" : "Replay"}
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={onStop}
+                disabled={!thisSpeaking && !thisPreparing}
+                aria-label={`Stop ${item.label}`}
+                className="rounded-full border border-line px-4 py-2 text-sm font-semibold hover:bg-paper focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Stop
+              </button>
+              <button
+                type="button"
+                onClick={() => onCopy(language)}
+                disabled={!side.text}
+                aria-label={`Copy ${item.label}`}
+                className="rounded-full border border-line px-4 py-2 text-sm font-semibold hover:bg-paper focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {side.copied ? "Copied" : "Copy"}
+              </button>
+              {saved ? (
+                <button
+                  type="button"
+                  onClick={() => onDownload(language)}
+                  aria-label={`Download ${item.label} audio`}
+                  title="Download an MP3 you can attach in WhatsApp or Messages"
+                  className="rounded-full border border-line px-4 py-2 text-sm font-semibold hover:bg-paper focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green"
+                >
+                  Download
+                </button>
+              ) : null}
+              {saved?.shareable ? (
+                <button
+                  type="button"
+                  onClick={() => onShare(language)}
+                  aria-label={`Share ${item.label} audio`}
+                  title="Open the share sheet to attach this MP3"
+                  className="rounded-full border border-line px-4 py-2 text-sm font-semibold hover:bg-paper focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green"
+                >
+                  Share
+                </button>
+              ) : null}
+            </div>
+            {saved ? (
+              <p className="mt-3 text-sm text-muted">
+                This MP3 can be attached in WhatsApp or Messages.
+              </p>
+            ) : null}
+            {side.voiceNote ? (
+              <p className="mt-3 text-sm text-gold">{side.voiceNote}</p>
+            ) : null}
+            {side.audioHint ? (
+              <p className="mt-2 text-sm text-muted">{side.audioHint}</p>
+            ) : null}
+            {side.error ? (
+              <p role="alert" className="mt-3 text-sm text-clay">
+                {side.error}
+              </p>
+            ) : null}
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+function CompactHistoryRow({
+  entry,
+  speechActive,
+  onOpen,
+  onStop,
+}: {
+  entry: HistoryEntry;
+  speechActive: boolean;
+  onOpen: (id: string) => void;
+  onStop: () => void;
+}) {
+  const detail =
+    entry.status === "pending"
+      ? "Translating…"
+      : `Naijá: ${sidePreview(entry.sides.naija)} · Yorùbá: ${sidePreview(entry.sides.yoruba)}`;
+  return (
+    <li id={`translation-${entry.id}`} className="flex items-stretch gap-2">
+      <button
+        type="button"
+        aria-expanded={false}
+        onClick={() => onOpen(entry.id)}
+        className="flex min-w-0 flex-1 items-center gap-3 rounded-2xl border border-line bg-card px-3 py-2 text-left hover:border-green focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green"
+      >
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-semibold text-ink">
+            {oneLine(entry.english)}
+          </span>
+          <span className="mt-0.5 block truncate text-xs text-muted">{detail}</span>
+        </span>
+        <span className="shrink-0 text-sm font-semibold text-green-ink">Open</span>
+      </button>
+      {speechActive ? (
+        <button
+          type="button"
+          onClick={onStop}
+          className="shrink-0 rounded-2xl border border-line bg-card px-3 text-sm font-semibold hover:bg-paper focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green"
+        >
+          Stop
+        </button>
+      ) : null}
+    </li>
+  );
+}
+
+function BookmarkControl({
+  disabled,
+  noted,
+  onBookmark,
+}: {
+  disabled: boolean;
+  noted: boolean;
+  onBookmark: () => void;
+}) {
+  return (
+    <div className="flex flex-col items-start gap-2">
+      <button
+        type="button"
+        onClick={onBookmark}
+        disabled={disabled}
+        className="rounded-full border border-line bg-card px-4 py-2 text-sm font-semibold hover:bg-paper focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        Bookmark this translation
+      </button>
+      {noted ? (
+        <p aria-live="polite" className="text-sm text-green-ink">
+          Saved in this browser.
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -945,6 +1289,24 @@ function blankSide(): Side {
   };
 }
 
+function matchesSpeech(
+  current: SpeechTarget | null,
+  entryId: string | null,
+  language: LanguageId,
+) {
+  return current?.entryId === entryId && current.language === language;
+}
+
+function oneLine(value: string) {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function sidePreview(side: Side) {
+  if (side.text) return oneLine(side.text);
+  if (side.error) return oneLine(side.error);
+  return "…";
+}
+
 function haltPlayback(audioRef: { current: HTMLAudioElement | null }) {
   if (synthesisSupported()) window.speechSynthesis.cancel();
   stopSpeaker(audioRef.current);
@@ -956,11 +1318,11 @@ function clearSpeechWatch(watch: { current: number | null }) {
   watch.current = null;
 }
 
-function releaseCloudAudio(
-  saved: Partial<Record<LanguageId, { url: string }>>,
-) {
+function releaseCloudAudio(saved: CloudAudioMap) {
   for (const entry of Object.values(saved)) {
-    if (entry) URL.revokeObjectURL(entry.url);
+    for (const clip of Object.values(entry)) {
+      if (clip) URL.revokeObjectURL(clip.url);
+    }
   }
 }
 
