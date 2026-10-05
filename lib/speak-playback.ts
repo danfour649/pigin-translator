@@ -149,6 +149,34 @@ export function waitingToSpeakCard(): CloudSpeakCard {
   };
 }
 
+export type ReplayResult<T> = {
+  clip: T | null;
+  /** True only when no clip was already in hand, so the provider was asked. */
+  fetched: boolean;
+  started: boolean;
+};
+
+/**
+ * Replay a spoken clip. A clip already in hand plays with no provider call.
+ * With nothing saved, fetch once; the caller keeps that clip for the next replay.
+ * `started` comes from playback, so the caller must not claim speaking earlier.
+ */
+export async function replayClip<T extends { url: string }>(input: {
+  saved: T | null;
+  fetchClip: () => Promise<T | null>;
+  play: (clip: T) => Promise<boolean>;
+}): Promise<ReplayResult<T>> {
+  if (input.saved?.url) {
+    const started = await input.play(input.saved);
+    return { clip: input.saved, fetched: false, started };
+  }
+
+  const clip = await input.fetchClip();
+  if (!clip?.url) return { clip: null, fetched: true, started: false };
+  const started = await input.play(clip);
+  return { clip, fetched: true, started };
+}
+
 /** Browser speech is claimed only from its start event, never from the click. */
 export function browserSpeechCard(
   event: "start" | "end" | "error" | "timeout",

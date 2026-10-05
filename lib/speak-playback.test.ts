@@ -9,6 +9,7 @@ import {
   browserSpeechCard,
   cloudSpeakCard,
   playbackHasStarted,
+  replayClip,
   setAudioSessionType,
   silentUnlockSrc,
   waitingToSpeakCard,
@@ -139,6 +140,103 @@ test("browser speech is claimed only after it starts", () => {
   assert.equal(failed.speaking, false);
   assert.equal(failed.voiceNote, null);
   assert.equal(failed.error, BROWSER_PLAYBACK_FAILED);
+});
+
+test("replay plays a saved clip without asking the provider again", async () => {
+  let fetches = 0;
+  const saved = { url: "blob:held" };
+  const first = await replayClip({
+    saved,
+    fetchClip: async () => {
+      fetches += 1;
+      return { url: "blob:new" };
+    },
+    play: async () => true,
+  });
+  assert.equal(fetches, 0);
+  assert.equal(first.fetched, false);
+  assert.equal(first.clip?.url, "blob:held");
+  assert.equal(first.started, true);
+
+  const again = await replayClip({
+    saved: first.clip,
+    fetchClip: async () => {
+      fetches += 1;
+      return { url: "blob:again" };
+    },
+    play: async () => false,
+  });
+  assert.equal(fetches, 0);
+  assert.equal(again.fetched, false);
+  assert.equal(again.started, false);
+  assert.equal(again.clip?.url, "blob:held");
+
+  const speaking = cloudSpeakCard({
+    receivedAudio: first.clip != null,
+    playbackStarted: first.started,
+    providerLabel: "Azure",
+    voiceName: "en-NG-EzinneNeural",
+  });
+  const quiet = cloudSpeakCard({
+    receivedAudio: again.clip != null,
+    playbackStarted: again.started,
+    providerLabel: "Azure",
+    voiceName: "en-NG-EzinneNeural",
+  });
+  assert.equal(speaking.speaking, true);
+  assert.equal(speaking.offerFile, true);
+  assert.equal(quiet.speaking, false);
+  assert.equal(quiet.offerFile, true);
+  assert.equal(quiet.error, PLAYBACK_DID_NOT_START);
+});
+
+test("replay fetches a missing clip once, then later replays use it", async () => {
+  let fetches = 0;
+  let plays = 0;
+  const first = await replayClip({
+    saved: null,
+    fetchClip: async () => {
+      fetches += 1;
+      return { url: "blob:once" };
+    },
+    play: async (clip) => {
+      plays += 1;
+      return clip.url === "blob:once";
+    },
+  });
+  assert.equal(fetches, 1);
+  assert.equal(first.fetched, true);
+  assert.equal(first.started, true);
+
+  const second = await replayClip({
+    saved: first.clip,
+    fetchClip: async () => {
+      fetches += 1;
+      return { url: "blob:twice" };
+    },
+    play: async () => {
+      plays += 1;
+      return true;
+    },
+  });
+  assert.equal(fetches, 1);
+  assert.equal(plays, 2);
+  assert.equal(second.fetched, false);
+  assert.equal(second.clip?.url, "blob:once");
+
+  let missedPlays = 0;
+  const missed = await replayClip({
+    saved: null,
+    fetchClip: async () => null,
+    play: async () => {
+      missedPlays += 1;
+      return true;
+    },
+  });
+  assert.equal(missed.clip, null);
+  assert.equal(missed.fetched, true);
+  assert.equal(missed.started, false);
+  assert.equal(missedPlays, 0);
 });
 
 test("the unlock clip is a silent wav, not an empty src", () => {
