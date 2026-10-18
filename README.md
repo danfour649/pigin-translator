@@ -61,6 +61,8 @@ Preferred production setup: enable AI Gateway for the project and **do not** put
 
 If the project does not use AI Gateway, set one of `AI_GATEWAY_API_KEY`, `OPENAI_API_KEY`, or `ANTHROPIC_API_KEY` in the project’s environment variables. Leave them out of git.
 
+Vercel Web Analytics is on. It records page views only (visitors, countries, and referrers). Translation text, speech, bookmarks, and corrections are not sent.
+
 ## Browser speech
 
 | Browser | Listen (English) | Speak |
