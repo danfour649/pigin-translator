@@ -101,11 +101,7 @@ export async function synthesizeAzureSpeech(
   );
 
   if (!response.ok) {
-    const detail = (await response.text()).replaceAll(key, "[redacted]");
-    console.error(
-      `Azure Speech failed (${response.status})`,
-      detail.slice(0, 300),
-    );
+    console.error(`Azure Speech failed (${response.status})`);
     throw new AzureSpeechError(
       response.status === 401 ? 401 : 502,
       "Azure Speech could not synthesize audio.",

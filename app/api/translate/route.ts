@@ -11,6 +11,7 @@ import {
   gatewayConfigured,
   type ProviderName,
 } from "@/lib/provider";
+import { translationFailureLog } from "@/lib/safe-error";
 import {
   DEFAULT_TRANSLATION_MODEL_ID,
   isTranslationModelId,
@@ -104,8 +105,7 @@ export async function POST(request: Request) {
     return Response.json(payload);
   } catch (error) {
     console.error(
-      `Translation with ${choice.provider} (${choice.modelId}) failed`,
-      error,
+      translationFailureLog(choice.provider, choice.modelId, error),
     );
     return errorResponse(502, describeModelFailure(model.label, error));
   }

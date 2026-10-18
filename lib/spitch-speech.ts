@@ -33,11 +33,7 @@ export async function synthesizeSpitchSpeech(
   });
 
   if (!response.ok) {
-    const detail = (await response.text()).replaceAll(key, "[redacted]");
-    console.error(
-      `Spitch speech failed (${response.status})`,
-      detail.slice(0, 300),
-    );
+    console.error(`Spitch speech failed (${response.status})`);
     throw new SpitchSpeechError(
       response.status === 401 ? 401 : 502,
       "Spitch could not synthesize audio.",

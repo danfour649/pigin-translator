@@ -61,9 +61,10 @@ test("spitch request is yo/sade/mp3 and returns audio bytes", async () => {
   }
 });
 
-test("spitch errors do not include the key", async () => {
+test("spitch errors log the status without the key or the spoken text", async () => {
   const previous = process.env.SPITCH_API_KEY;
   process.env.SPITCH_API_KEY = KEY;
+  const spoken = "Báwo ni?";
   const logs: string[] = [];
   const original = console.error;
   console.error = (...args: unknown[]) => {
@@ -72,18 +73,21 @@ test("spitch errors do not include the key", async () => {
   try {
     await assert.rejects(
       () =>
-        synthesizeSpitchSpeech("Báwo ni?", async () => {
-          return new Response(`unauthorized ${KEY}`, { status: 401 });
+        synthesizeSpitchSpeech(spoken, async () => {
+          return new Response(`unauthorized ${KEY} ${spoken}`, { status: 401 });
         }),
       (error: unknown) => {
         assert.ok(error instanceof SpitchSpeechError);
         assert.equal(error.status, 401);
         assert.equal(error.message.includes(KEY), false);
+        assert.equal(error.message.includes(spoken), false);
         return true;
       },
     );
-    assert.equal(logs.some((line) => line.includes(KEY)), false);
-    assert.match(logs.join("\n"), /\[redacted\]/);
+    const logged = logs.join("\n");
+    assert.equal(logged.includes(KEY), false);
+    assert.equal(logged.includes(spoken), false);
+    assert.match(logged, /Spitch speech failed \(401\)/);
   } finally {
     console.error = original;
     restoreKey(previous);
