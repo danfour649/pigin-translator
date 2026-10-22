@@ -18,7 +18,7 @@ import json, os, sys, time, urllib.request, urllib.error
 ENDPOINT = os.environ["AZURE_FOUNDRY_ENDPOINT"].rstrip("/")
 API_KEY = os.environ["AZURE_FOUNDRY_API_KEY"]
 DEPLOYMENT = os.environ["AZURE_FOUNDRY_DEPLOYMENT"]
-API_VERSION = os.environ.get("AZURE_FOUNDRY_API_VERSION", "2024-10-21")
+API_VERSION = os.environ.get("AZURE_FOUNDRY_API_VERSION", "2025-04-01-preview")
 BATCH = 20
 
 PROMPTS = {
@@ -44,13 +44,17 @@ PROMPTS = {
 def call_chat(system_prompt, user_text, retries=5):
     url = (f"{ENDPOINT}/openai/deployments/{DEPLOYMENT}/chat/completions"
            f"?api-version={API_VERSION}")
-    body = json.dumps({
+    payload = {
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_text},
         ],
-        "temperature": 0.2,
-    }).encode("utf-8")
+    }
+    # GPT-5-class reasoning deployments reject a non-default temperature;
+    # only send one when explicitly requested.
+    if os.environ.get("PILOT_TEMPERATURE"):
+        payload["temperature"] = float(os.environ["PILOT_TEMPERATURE"])
+    body = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(url, data=body, method="POST", headers={
         "Content-Type": "application/json",
         "api-key": API_KEY,
@@ -60,6 +64,9 @@ def call_chat(system_prompt, user_text, retries=5):
             with urllib.request.urlopen(req, timeout=120) as resp:
                 return json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
+            if e.code == 400:
+                print("HTTP 400 body:", e.read().decode("utf-8", "replace")[:800], flush=True)
+                raise
             if e.code in (429, 500, 502, 503, 504) and attempt < retries - 1:
                 time.sleep(min(60, 5 * (2 ** attempt)))
                 continue
