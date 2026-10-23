@@ -248,3 +248,7 @@ One deliberate session on an H100-class pod, after Stages 1–3 land:
 ## Findings log
 
 - [2026-10-22 — pilot results + live model spot tests](FINDINGS-2026-10-22.md): measured pilot costs, GPT-6 availability/pricing on the Foundry account, diacritic-consistency results across three spot-test rounds, and the Azure DefaultV2 filter blocking an adult marital message at prompt level while both GPT-6 models translated it via the gateway.
+
+## Teacher decision (2026-10-22)
+
+**Teacher: GPT-6 Astra** — picked by Folasade from blind audio spot tests (three rounds, incl. against GPT-5.5 and GPT-6.1 Sol) and confirmed by the n=1,000 head-to-head re-run: zero diacritic failures, mark density on par with GPT-5.5, fuller phrasing. Details in FINDINGS-2026-10-22.md (addendum). GPT-5.5 remains the fallback teacher; GPT-6.1 Sol is the budget alternate.
