@@ -499,10 +499,19 @@ export function Translator() {
       return "fallback";
     }
 
+    // Label the card from the provider the status check actually reported
+    // for this language (Naijá is Spitch-first now, Azure only as its
+    // dormant fallback), not from the language alone.
+    const providerName = speakStatus.current.providers[spokenLanguage];
+    const isAzure = providerName === "azure";
+    const providerLabel = isAzure ? "Azure" : "Spitch";
     const voiceName =
       voicesRef.current[spokenLanguage] ??
-      (spokenLanguage === "yoruba" ? "sade" : "en-NG-EzinneNeural");
-    const providerLabel = spokenLanguage === "yoruba" ? "Spitch" : "Azure";
+      (spokenLanguage === "yoruba"
+        ? "sade"
+        : isAzure
+          ? "en-NG-EzinneNeural"
+          : "tayo");
     const card = cloudSpeakCard({
       receivedAudio: true,
       playbackStarted: outcome.started,

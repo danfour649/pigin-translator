@@ -12,6 +12,7 @@ import {
   speakCounterStore,
 } from "@/lib/speak-guard";
 import {
+  SPITCH_NAIJA_VOICE,
   SPITCH_YORUBA_VOICE,
   SpitchSpeechError,
   spitchSpeechConfigured,
@@ -25,14 +26,17 @@ export const maxDuration = 60;
 export function GET() {
   const azure = azureSpeechConfigured();
   const spitch = spitchSpeechConfigured();
+  const available = { azure, spitch };
+  const naijaBackend = chooseSpeakBackend("naija", available);
   return Response.json({
     configured: azure || spitch,
     providers: {
-      naija: azure ? "azure" : null,
-      yoruba: spitch ? "spitch" : null,
+      naija: naijaBackend,
+      yoruba: chooseSpeakBackend("yoruba", available),
     },
     voices: {
-      naija: AZURE_VOICES.naija.name,
+      naija:
+        naijaBackend === "spitch" ? SPITCH_NAIJA_VOICE : AZURE_VOICES.naija.name,
       yoruba: SPITCH_YORUBA_VOICE,
     },
   });
@@ -85,7 +89,7 @@ export async function POST(request: Request) {
   try {
     const audio =
       backend === "spitch"
-        ? await synthesizeSpitchSpeech(parsed.text)
+        ? await synthesizeSpitchSpeech(parsed.text, fetch, parsed.language)
         : await synthesizeAzureSpeech(parsed.text, parsed.language);
     return new Response(audio, {
       headers: {

@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { chooseSpeakBackend } from "./speak-cloud.ts";
 import {
+  SPITCH_NAIJA_VOICE,
+  SPITCH_SPEECH_CONFIG,
   SPITCH_SPEECH_URL,
   SPITCH_YORUBA_VOICE,
   SpitchSpeechError,
@@ -10,23 +12,76 @@ import {
 
 const KEY = "spitch-test-key-not-real";
 
-test("yoruba uses spitch and naija uses azure", () => {
+test("yoruba uses spitch only and naija prefers spitch over azure", () => {
   assert.equal(
     chooseSpeakBackend("yoruba", { azure: true, spitch: true }),
     "spitch",
-  );
-  assert.equal(
-    chooseSpeakBackend("naija", { azure: true, spitch: true }),
-    "azure",
   );
   assert.equal(
     chooseSpeakBackend("yoruba", { azure: true, spitch: false }),
     null,
   );
   assert.equal(
-    chooseSpeakBackend("naija", { azure: false, spitch: true }),
+    chooseSpeakBackend("yoruba", { azure: false, spitch: false }),
     null,
   );
+  assert.equal(
+    chooseSpeakBackend("naija", { azure: true, spitch: true }),
+    "spitch",
+  );
+  assert.equal(
+    chooseSpeakBackend("naija", { azure: false, spitch: true }),
+    "spitch",
+  );
+  assert.equal(
+    chooseSpeakBackend("naija", { azure: true, spitch: false }),
+    "azure",
+  );
+  assert.equal(
+    chooseSpeakBackend("naija", { azure: false, spitch: false }),
+    null,
+  );
+});
+
+test("spitch config pairs yoruba with yo/sade and naija with pcm/tayo", () => {
+  assert.deepEqual(SPITCH_SPEECH_CONFIG.yoruba, {
+    language: "yo",
+    voice: SPITCH_YORUBA_VOICE,
+  });
+  assert.equal(SPITCH_SPEECH_CONFIG.yoruba.voice, "sade");
+  assert.deepEqual(SPITCH_SPEECH_CONFIG.naija, {
+    language: "pcm",
+    voice: SPITCH_NAIJA_VOICE,
+  });
+  assert.equal(SPITCH_SPEECH_CONFIG.naija.voice, "tayo");
+});
+
+test("spitch request for naija is pcm/tayo/mp3 and returns audio bytes", async () => {
+  const previous = process.env.SPITCH_API_KEY;
+  process.env.SPITCH_API_KEY = KEY;
+  try {
+    let seenBody = "";
+    const audio = await synthesizeSpitchSpeech(
+      "I dey miss you well well.",
+      async (_url, init) => {
+        seenBody = String(init?.body ?? "");
+        return new Response(Uint8Array.from([0xff, 0xfb, 0x90, 0x64]), {
+          status: 200,
+          headers: { "content-type": "audio/mpeg" },
+        });
+      },
+      "naija",
+    );
+    assert.deepEqual(JSON.parse(seenBody), {
+      language: "pcm",
+      voice: SPITCH_NAIJA_VOICE,
+      format: "mp3",
+      text: "I dey miss you well well.",
+    });
+    assert.equal(audio.byteLength, 4);
+  } finally {
+    restoreKey(previous);
+  }
 });
 
 test("spitch request is yo/sade/mp3 and returns audio bytes", async () => {
