@@ -46,7 +46,11 @@ test("translate and speech error logs do not print request text", () => {
   assert.doesNotMatch(translate, /console\.error\(\s*`Translation[\s\S]*?,\s*error\s*,/);
   assert.equal(speak.includes("console."), false);
   assert.doesNotMatch(azure, /response\.text\(/);
-  assert.doesNotMatch(spitch, /response\.text\(/);
+  // Spitch may read its upstream error body, but only through
+  // sanitizeSpitchDetail, which redacts the API key and the request text
+  // before anything is logged; spitch-speech.test.ts pins that behaviour
+  // with an upstream body containing both.
+  assert.match(spitch, /sanitizeSpitchDetail\(/);
   assert.match(azure, /Azure Speech failed \(\$\{response\.status\}\)/);
   assert.match(spitch, /Spitch speech failed \(\$\{response\.status\}\)/);
 });
