@@ -131,3 +131,91 @@ plan: size the bulk run from the pilot's measured token counts).
 - Before training the adult layers on any hosted service, check its terms
   allow adult romantic content; many do not. Local training has no such
   constraint.
+
+## The endgame: knocking this translator out of the park
+
+Folasade's early verdict on pilot samples (2026-10-22): the GPT-5.5 Yoruba
+is "generally excellent". The goal is therefore not a bigger generator —
+it is a translator we own that matches or beats GPT-5.5 on the everyday
+register (and serves registers Azure refuses), at zero marginal cost per
+translation. The plan runs in stages; each stage gates the next.
+
+### Stage 0 — Pilot (running)
+1,000 Tatoeba sentences per language on the Foundry gpt-5-5 deployment,
+metered. Output: measured per-pair token cost and a gradable sample.
+Everything after this is sized from those numbers, not estimates.
+
+### Stage 1 — Human quality gate (target Oct 26–27)
+- Folasade grades ~100 Yoruba pairs: correctness, tone marks, naturalness.
+  Her defect rate is the go/no-go for the bulk spend.
+- Capture her fixes as structured accepted/rejected pairs, not just a
+  score — that correction data is the most valuable training signal in
+  the whole project (used in Stage 4's preference pass).
+- Sanity-check the Naija output the same way (speaker TBD).
+- Error taxonomy to track explicitly (from docs/yoruba-translation-plan.md):
+  kinship terms, dropped/wrong tone marks, statement flipped to question,
+  register slips.
+
+### Stage 2 — Bulk generation on the expiring credit (Oct 27–30)
+- Spend $180–190 of the trial credit by Oct 31 (it expires Nov 2 and
+  Azure's cost reporting lags 8–24h, so the last day is not usable).
+- Everyday corpus at Tatoeba scale for both languages; Batch API (half
+  price, separate deployment) for the bulk of it.
+- Back-translation pass on everything; drift-flagged pairs get reviewed
+  or dropped, never silently trained on.
+- Three-way alternative translations on a subset — feedstock for the
+  Stage 4 reranker and preference training.
+- Adult playful/suggestive dialogues per the layered-register design
+  notes: separate files, scenario metadata, generated English sources.
+  (Design is approved as plan text; generating that tier starts only on
+  Daniel's explicit go.)
+- Archive raw output to Google Drive, Box, and Dropbox; verify each copy.
+  Text shards (~25K pairs/file) also live in this repo — measured
+  279 bytes/pair, so even 200K pairs is ~56 MB.
+
+### Stage 3 — Data assembly
+- Merge synthetic pairs with licensed human gold: MENYO-20k TRAIN split
+  (CC BY-NC 4.0 — training only, never its test split), OPUS/CC-BY
+  sources per the existing plan doc. Never FLORES or MENYO test data.
+- Every record carries source, license, and register fields, so a
+  commercial-clean subset (no NC-tainted records) can be filtered at any
+  time.
+- The graded sample from Stage 1 becomes the held-out test set. It is
+  never trained on.
+
+### Stage 4 — RunPod training session (Daniel funds it; ~$100–200)
+One deliberate session on an H100-class pod, after Stages 1–3 land:
+- **Keeper model:** full fine-tune of MADLAD-400 7B (Apache 2.0) on the
+  assembled corpus. Full FT, not the LoRA the home 4060 would be limited
+  to. NLLB-200 (CC BY-NC weights) is the evaluation yardstick only —
+  nothing shipped derives from it.
+- **Preference pass:** train toward Folasade's accepted versions and
+  away from her rejected ones.
+- **Corpus reranking:** multi-candidate generation + back-translation
+  agreement scoring; keep the best candidate per source line.
+- **Unfiltered tier (only if green-lit):** open-model generation and
+  translation of the explicit register that Azure's filters block —
+  adults-only guardrails from the design notes apply unchanged.
+- Fallback if the big run disappoints: distilled MADLAD 3B / LoRA on the
+  home RTX 4060 — an hour-scale run, free.
+
+### Stage 5 — Evaluation before anything ships
+- Held-out graded test set: chrF/BLEU against the GPT-5.5 baseline AND
+  human spot grades; re-run the Stage 1 error taxonomy.
+- Ship criterion: matches or beats GPT-5.5 on the everyday register.
+  If it doesn't, the corpus still stands as the asset and the model
+  iteration repeats — the data is the durable part.
+
+### Stage 6 — Serve and publish
+- Quantized checkpoint served from fola4.1 (RTX 4060) as a small API;
+  pigin-translator calls our own model instead of renting GPT per
+  translation, with GPT as fallback for out-of-scope input.
+- Publish the generic corpus (and the permissively licensed model)
+  openly from this repo; the adult layers get their own separate
+  license and distribution decision.
+
+### Open checks
+- Azure OpenAI terms on training downstream models from GPT outputs —
+  verify before any commercial use of the synthetic data.
+- Per-record license tracking (Stage 3) is what keeps the NC question
+  answerable later; do not merge sources without it.
