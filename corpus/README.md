@@ -161,6 +161,31 @@ Everything after this is sized from those numbers, not estimates.
   Azure's cost reporting lags 8–24h, so the last day is not usable).
 - Everyday corpus at Tatoeba scale for both languages; Batch API (half
   price, separate deployment) for the bulk of it.
+- **Source packs** (named generation jobs; sizes indicative, finalized
+  from the pilot's measured per-pair cost). Tatoeba skews generic and
+  declarative; these packs target what it misses. Generated English
+  sources are owned outright; seeds below are the topic lists:
+  - `pack-functional` (~4K lines): health & pharmacy; money & banking;
+    school & kids; work & shifts; home & repairs; transit & driving;
+    appointments & services; emergencies.
+  - `pack-questions` (~2K lines): wh- and yes/no questions, polite
+    requests phrased as questions, follow-ups — aimed directly at the
+    statement-flipped-to-question error class.
+  - `pack-canadian` (~2K lines): winter life (snow clearing, wind
+    chill, block heaters, black ice); settlement & services (SIN,
+    health card, CRA, EI, Service Canada, PR card); hockey & small
+    talk; Canadian places and weather talk; Canadian spellings.
+    canada.ca is mined for topics and plain-language phrasing only —
+    Crown copyright, no wholesale copying of its sentences.
+  - `pack-modern` (~1.5K lines): phones, apps, passwords and Wi-Fi;
+    texting style and abbreviations; delivery and gig work; video
+    calls; social media.
+  - `pack-dialogue-everyday` (~1K short exchanges): greetings,
+    shopping, neighbours, phone calls — everyday dialogue units,
+    bridging to the dialogue format the adult layers use.
+  - Source-side pull, not generation: Mozilla Common Voice sentences
+    (CC0 — no strings), filtered with the pilot sampler's rules, as
+    bulk conversational filler beside Tatoeba.
 - Back-translation pass on everything; drift-flagged pairs get reviewed
   or dropped, never silently trained on.
 - Three-way alternative translations on a subset — feedstock for the
