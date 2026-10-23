@@ -842,37 +842,31 @@ export function Translator() {
           ))}
         </div>
 
-        <fieldset className="mt-5">
-          <legend className="text-sm font-semibold">Translation model</legend>
-          <div className="mt-2 grid gap-2 sm:grid-cols-3">
+        <div className="mt-5">
+          <label htmlFor="translation-model" className="text-sm font-semibold">
+            Translation model
+          </label>
+          <select
+            id="translation-model"
+            name="translation-model"
+            value={modelId}
+            onChange={(event) => {
+              const next = event.target.value;
+              if (isTranslationModelId(next)) setModelId(next);
+            }}
+            className="mt-2 h-12 w-full rounded-2xl border border-line bg-white px-3 text-sm text-ink hover:border-green focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green"
+          >
             {TRANSLATION_MODELS.map((model) => (
-              <label
-                key={model.id}
-                className={`flex cursor-pointer gap-2 rounded-2xl border px-3 py-2 text-sm ${
-                  modelId === model.id
-                    ? "border-green bg-white"
-                    : "border-line bg-white hover:border-green"
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="translation-model"
-                  value={model.id}
-                  checked={modelId === model.id}
-                  onChange={() => setModelId(model.id)}
-                  className="mt-1 accent-green"
-                />
-                <span>
-                  <span className="font-semibold">{model.label}</span>
-                  <span className="mt-0.5 block text-muted">{model.note}</span>
-                  <span className="mt-1 block font-mono text-xs text-muted">
-                    {model.id}
-                  </span>
-                </span>
-              </label>
+              <option key={model.id} value={model.id}>
+                {model.label}
+              </option>
             ))}
-          </div>
-        </fieldset>
+          </select>
+          <p className="mt-1.5 text-sm text-muted">
+            {translationModelById(modelId).note}{" "}
+            <span className="font-mono text-xs">{modelId}</span>
+          </p>
+        </div>
 
         <button
           type="button"
