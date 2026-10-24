@@ -2,7 +2,7 @@ export const TRANSLATION_MODELS = [
   {
     id: "openai/gpt-6-astra",
     label: "GPT-6 Astra",
-    note: "Flagship. Newest OpenAI.",
+    note: "Flagship. Newest OpenAI. Selected by default.",
   },
   {
     id: "openai/gpt-6.1-sol",
@@ -12,7 +12,7 @@ export const TRANSLATION_MODELS = [
   {
     id: "openai/gpt-5.4",
     label: "GPT-5.4",
-    note: "Paid. Selected by default.",
+    note: "Paid.",
   },
   {
     id: "google/gemini-2.5-flash-lite",
@@ -29,7 +29,7 @@ export const TRANSLATION_MODELS = [
 export type TranslationModelId = (typeof TRANSLATION_MODELS)[number]["id"];
 
 export const DEFAULT_TRANSLATION_MODEL_ID: TranslationModelId =
-  "openai/gpt-5.4";
+  "openai/gpt-6-astra";
 
 export function isTranslationModelId(
   value: unknown,
