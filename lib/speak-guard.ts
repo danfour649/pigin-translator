@@ -22,10 +22,10 @@ export const PRODUCTION_SPEAK_HOST = "pigin-translator.vercel.app";
 export const SPEAK_LIMITS = {
   burstRequests: 8,
   burstWindowMs: 10 * 60 * 1000,
-  visitorDailyRequests: 30,
-  visitorDailyCharacters: 8_000,
-  globalDailyRequests: 80,
-  globalDailyCharacters: 15_000,
+  visitorDailyRequests: 60,
+  visitorDailyCharacters: 16_000,
+  globalDailyRequests: 160,
+  globalDailyCharacters: 30_000,
   dailyWindowMs: 24 * 60 * 60 * 1000,
 } as const;
 
