@@ -45,6 +45,7 @@ import {
   downloadAudioFile,
   shareSpokenAudio,
 } from "@/lib/spoken-audio";
+import { getCachedSpeakClip, storeSpeakClip } from "@/lib/speak-cache";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 type Phase = "idle" | "listening" | "translating";
@@ -442,6 +443,31 @@ export function Translator() {
     let playbackUrl: string | null = null;
     let transferred = false;
     try {
+      // A clip for this exact text may already sit in the browser cache.
+      // It plays (and saves) like a fresh cloud success, with no provider
+      // call and no speak-guard spend.
+      const voice = voicesRef.current[spokenLanguage] ?? null;
+      const cached = await getCachedSpeakClip(spokenLanguage, voice, spoken);
+      if (speakGen.current !== generation) return null;
+      if (cached) {
+        const cachedFile = audioFileForSpeak(
+          "cloud",
+          spokenLanguage,
+          cached.blob,
+          cached.contentType,
+        );
+        if (cachedFile) {
+          playbackUrl = URL.createObjectURL(cachedFile);
+          if (speakGen.current !== generation) return null;
+          transferred = true;
+          return {
+            url: playbackUrl,
+            file: cachedFile,
+            shareable: canShareAudioFile(cachedFile),
+          };
+        }
+      }
+
       const response = await fetch("/api/speak", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -455,6 +481,11 @@ export function Translator() {
       if (speakGen.current !== generation) return null;
       const file = audioFileForSpeak("cloud", spokenLanguage, blob, contentType);
       if (!file) return null;
+
+      // Keep the clip so the next Speak or Replay of this exact text is
+      // served from the browser cache instead of the provider. Only real
+      // provider audio reaches this line; errors and fallbacks never do.
+      void storeSpeakClip(spokenLanguage, voice, spoken, { blob, contentType });
 
       playbackUrl = URL.createObjectURL(file);
       if (speakGen.current !== generation) return null;
