@@ -26,7 +26,9 @@ Set an AI Gateway credential in `.env.local`: `AI_GATEWAY_API_KEY` or `VERCEL_OI
 
 The page has a model selector. Both Naijá and Yorùbá use the model you pick, and Pigin calls only that model. If the gateway rejects it, the page shows that failure and does not try a different model.
 
-- **GPT-5.4** (`openai/gpt-5.4`) — paid, and the default. It spends AI Gateway credits.
+- **GPT-6 Astra** (`openai/gpt-6-astra`) — flagship, paid, and the default. It spends AI Gateway credits.
+- **GPT-6.1 Sol** (`openai/gpt-6.1-sol`) — newer, faster, cheaper. Paid; it spends AI Gateway credits.
+- **GPT-5.4** (`openai/gpt-5.4`) — paid. It spends AI Gateway credits.
 - **Gemini 2.5 Flash Lite** (`google/gemini-2.5-flash-lite`) — free.
 - **Gemini 3.1 Flash Lite** (`google/gemini-3.1-flash-lite`)
 
@@ -47,7 +49,7 @@ npm run dev
 
 You can instead create an AI Gateway API key in the Vercel dashboard and set `AI_GATEWAY_API_KEY`. A gateway key takes precedence over OIDC.
 
-Gateway requests use the model selected on the page. The default is `openai/gpt-5.4`.
+Gateway requests use the model selected on the page. The default is `openai/gpt-6-astra`.
 
 ## Deploy on Vercel
 
@@ -134,7 +136,7 @@ npm run lint   # eslint
 { "text": "Good morning", "language": "naija", "model": "openai/gpt-5.4" }
 ```
 
-`language` is `naija` or `yoruba`. `model` is one of `openai/gpt-5.4`, `google/gemini-2.5-flash-lite`, or `google/gemini-3.1-flash-lite`. If `model` is omitted, `openai/gpt-5.4` is used. `text` is required and capped at 4000 characters. The page sends two of these requests, one for each language, so both translations appear together. A gateway rejection is returned as `error` and shown on the page.
+`language` is `naija` or `yoruba`. `model` is one of `openai/gpt-6-astra`, `openai/gpt-6.1-sol`, `openai/gpt-5.4`, `google/gemini-2.5-flash-lite`, or `google/gemini-3.1-flash-lite`. If `model` is omitted, `openai/gpt-6-astra` is used. `text` is required and capped at 4000 characters. The page sends two of these requests, one for each language, so both translations appear together. A gateway rejection is returned as `error` and shown on the page.
 
 Bookmarks and corrections are stored in the browser’s `localStorage`. They stay after a refresh and are not included in the translation request or the model prompt.
 
