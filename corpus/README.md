@@ -252,3 +252,14 @@ One deliberate session on an H100-class pod, after Stages 1–3 land:
 ## Teacher decision (2026-10-22)
 
 **Teacher: GPT-6 Astra** — picked by Folasade from blind audio spot tests (three rounds, incl. against GPT-5.5 and GPT-6.1 Sol) and confirmed by the n=1,000 head-to-head re-run: zero diacritic failures, mark density on par with GPT-5.5, fuller phrasing. Details in FINDINGS-2026-10-22.md (addendum). GPT-5.5 remains the fallback teacher; GPT-6.1 Sol is the budget alternate.
+
+## Bulk run findings — 2026-10-23
+
+- **Dual-teacher bulk completed 2026-10-23.** Muse (claude-muse-benchmark lanes): 100,720 records — complete coverage. GPT-6 Astra (Azure): 100,706 records. Combined: 201,426 EN→{Yoruba, Naija} records. Per teacher per language: 40,000 general Tatoeba sentences + 10,360 generated pack records (functional 4,000; questions 2,000; canadian 1,920; modern 1,440; dialogues 1,000).
+- **Astra gaps (14 records).** Azure's content filter rejected the same 6 Tatoeba sentences in both languages (tatoeba-373250, tatoeba-5732955, tatoeba-8047892, tatoeba-8684979, tatoeba-11449711, tatoeba-12886070), plus one dialogue per language (pack-dialogue-00945 Yoruba, pack-dialogue-00710 Naija). All 14 are covered by the Muse teacher, so the corpus has no holes.
+- **Diacritic scan.** Muse Yoruba: 0 undiacritized of 50,360 (mark density 0.456 general / 0.503 packs). Astra Yoruba: 17 undiacritized of 39,994 general, 0 of 10,359 packs (density 0.448 / 0.499).
+- **Cross-teacher agreement** over the 50,353 shared ids per language: Yoruba exact-match 9.4%, mean word-Jaccard 0.567; Naija exact-match 21.2%, mean word-Jaccard 0.687. Pilot n=1,000 benchmark for reference: mark density Claude 0.576 / Astra 0.573 / GPT-5.5 0.568; blind back-translation drift vs Astra mean Jaccard 0.496 — a review queue, not an error rate.
+- **Human spot-check (Folasade, round 4).** Muse's translation judged more accurate; Astra rendered through Spitch TTS pronounced better. Accuracy is the property training data needs; pronunciation belongs to the TTS layer.
+- **Cost.** Pilot $4.79 (GPT-5.5). Bulk Astra: 4,683,897 output tokens; estimated $211–$281 against the $283.10 Azure trial credit (expires 2026-11-02) — estimate only; actual charges post to Cost Management with an 8–24h lag and will replace this figure when available.
+- **Operations note.** A VM reboot on 2026-10-23 01:24 ADT killed both Azure chains mid-run; the resumable runners restarted losslessly and completed 04:40 ADT.
+- **Archives (hash-verified).** Pilot outputs in cloud folder `pigin-corpus-pilot-2026-10-22`; merged bulk files (8: claude_/astra_ × {yoruba, naija} × {general, packs}) in `pigin-corpus-bulk-2026-10-23` — each on Google Drive, Box, and Dropbox.

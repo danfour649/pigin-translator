@@ -40,3 +40,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# corpus data + python caches (large/generated; canonical copies live in cloud archives)
+corpus/data/
+__pycache__/
+*.pyc
