@@ -137,6 +137,8 @@ test("daily character and shared budgets stop a longer run", async () => {
   const length = 4_000;
   assert.equal((await allow(store, { textLength: length, ip: "203.0.113.20" })).ok, true);
   assert.equal((await allow(store, { textLength: length, ip: "203.0.113.20" })).ok, true);
+  assert.equal((await allow(store, { textLength: length, ip: "203.0.113.20" })).ok, true);
+  assert.equal((await allow(store, { textLength: length, ip: "203.0.113.20" })).ok, true);
   assert.equal(
     (await allow(store, { textLength: length, ip: "203.0.113.20" })).status,
     429,
