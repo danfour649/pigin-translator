@@ -80,13 +80,29 @@ python3 corpus/stage4_train.py --smoke
 python3 corpus/stage4_eval.py --model google/madlad400-7b-mt --limit 50   # base-model reference numbers
 python3 corpus/stage4_eval.py --model corpus/data/stage4/checkpoint-smoke --limit 50 || true
 ```
-The smoke gate inside the training script asserts `<2yo>` and `<2pcm>`
-each tokenize as **one** special token. Yoruba `<2yo>` is certain;
-`<2pcm>` for Naija is the one unverified assumption in this prep — if
-the assertion fires, stop and resolve the Naija tag before any real
-training. A smoke checkpoint's chrF is meaningless (30 steps); what
-matters is that generation runs, is in the right language, and the
-pipeline saves/loads.
+The language-tag gate inside the training script rests on a fact
+**verified 2026-11-08 against the model's own tokenizer vocabulary**:
+MADLAD-400 carries 493 `<2xx>` tags — `<2yo>` among them (id 157) —
+but **there is no `<2pcm>`: Nigerian Pidgin is not a MADLAD target
+language.** (The tempting `<2pis>` is Tok Pisin of Papua New Guinea, a
+different language; never substitute it.) The script therefore *adds*
+`<2pcm>` as a new special token and resizes the embeddings
+(`naija_tag_strategy: add_token` in the config); the full fine-tune
+trains that tag on ~105k Naija examples. This is also why "both
+languages in one model" works at all — and worth knowing before the
+run, not during it. A smoke checkpoint's chrF is meaningless
+(30 steps); what matters is that generation runs, is in the right
+language, and the pipeline saves/loads.
+
+**Smoke-testing on the home 4060 — what fits and what doesn't**
+(4060 = 8,188 MiB, and busy with MVTF work besides): the tokenizer and
+data pipeline smoke is CPU work and runs anywhere. A *training* smoke
+of the keeper config cannot fit the card at all — the 7B's bf16
+weights alone are ~14.4 GB — so 4060 smokes use the 3B fallback model
+with LoRA, which validates the pipeline (data → format → loss moves →
+save/load) but *not* the keeper's memory/optimizer profile. The 7B
+full-FT smoke happens on the pod, in the first paid minutes, which is
+what the smoke budget is for.
 
 ```bash
 # 2. KEEPER RUN — in tmux, logged. ~6-11 h estimated.

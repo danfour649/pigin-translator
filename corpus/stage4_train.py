@@ -11,9 +11,11 @@ Modes:
   python3 corpus/stage4_train.py --smoke    # 30 steps on a small subset
   python3 corpus/stage4_train.py            # the keeper run
 
-The smoke run exists to fail cheaply: it asserts the <2yo>/<2pcm>
-prefixes tokenize as single special tokens, trains briefly, and saves
-to a throwaway dir. Do not skip it on a fresh pod (see the runbook).
+The smoke run exists to fail cheaply: it checks the language prefixes
+(<2yo> is native to MADLAD; <2pcm> is NOT — verified 2026-11-08 — and
+is added as a new trainable token, see the gate in main()), trains
+briefly, and saves to a throwaway dir. Do not skip it on a fresh pod
+(see the runbook).
 
 Requires: torch, transformers, datasets, accelerate, sentencepiece,
 and bitsandbytes for the default 8-bit optimizer (falls back to
@@ -76,14 +78,26 @@ def main() -> int:
     base = cfg["base_model"]
     tok = AutoTokenizer.from_pretrained(base)
 
-    # --- smoke gate: language prefixes must be single special tokens ---
+    # --- language-tag gate (facts verified 2026-11-08, see runbook) ---
+    # <2yo> is a native MADLAD tag. <2pcm> does NOT exist in MADLAD-400
+    # (493 <2xx> tags, none for Nigerian Pidgin; <2pis> is Tok Pisin, a
+    # different language — never substitute it). Strategy per config:
+    # add <2pcm> as a new special token and resize the embeddings; the
+    # full fine-tune trains it on ~105k Naija examples.
+    added_tags = []
     for lang, tag in cfg["data"]["lang_tokens"].items():
         ids = tok(tag, add_special_tokens=False)["input_ids"]
-        if len(ids) != 1:
-            print(f"FATAL: {tag} for {lang} tokenizes to {ids}, not one token. "
-                  "Resolve the Naija/Yoruba tag before training.", file=sys.stderr)
+        if len(ids) == 1:
+            print(f"tag OK (native): {lang} {tag}")
+        elif cfg["data"].get("naija_tag_strategy") == "add_token" and lang == "naija":
+            tok.add_tokens([tag], special_tokens=True)
+            added_tags.append(tag)
+            print(f"tag ADDED (not native to MADLAD): {lang} {tag} — "
+                  "embeddings will be resized and the tag trained from scratch")
+        else:
+            print(f"FATAL: {tag} for {lang} tokenizes to {ids}, not one token, "
+                  "and no strategy covers it. Stop.", file=sys.stderr)
             return 1
-    print("language tags OK:", cfg["data"]["lang_tokens"])
 
     lang_token = cfg["data"]["lang_tokens"]
 
@@ -101,6 +115,9 @@ def main() -> int:
     model = AutoModelForSeq2SeqLM.from_pretrained(
         base, torch_dtype=torch.bfloat16)
     model.config.use_cache = False
+    if added_tags:
+        model.resize_token_embeddings(len(tok))
+        print(f"resized token embeddings to {len(tok)} for {added_tags}")
 
     optim = tcfg.get("optim", "adamw_bnb_8bit")
     try:
