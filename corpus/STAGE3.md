@@ -1,4 +1,4 @@
-# Stage 3 — Data Assembly (status: synthetic assembly DONE 2026-11-08; MENYO merge gated)
+# Stage 3 — Data Assembly (status: COMPLETE 2026-11-08)
 
 Stage 3 per `corpus/README.md`: merge the synthetic pairs with licensed
 human gold, keep per-record source/licence/register fields, and lock the
@@ -107,9 +107,10 @@ corpus needs no MENYO: Tatoeba sources are CC BY 2.0 FR (commercial,
 with attribution) and the generated packs are project-owned, so the
 assembled 305,981 training records are commercially clean.
 
-## Still open
+## Carried into Stage 4 (not Stage 3 blockers)
 1. **Teacher choice/mixing for Stage 4** (Astra-only, Claude-only, or
    both as multi-reference) — a training-config decision, deliberately
-   not baked into the data.
-2. **README totals** in `corpus/README.md` predate tranche2; updating
-   them is a small follow-up edit.
+   not baked into the data. `stage4_config.json` defaults to `both`
+   and leaves the final call to the run's go/no-go.
+2. README totals updated for tranche2 on 2026-11-08, the same day —
+   Stage 3 leaves no loose ends behind it.

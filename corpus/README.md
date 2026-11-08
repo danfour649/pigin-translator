@@ -198,15 +198,20 @@ Everything after this is sized from those numbers, not estimates.
   Text shards (~25K pairs/file) also live in this repo — measured
   279 bytes/pair, so even 200K pairs is ~56 MB.
 
-### Stage 3 — Data assembly
-- Merge synthetic pairs with licensed human gold: MENYO-20k TRAIN split
-  (CC BY-NC 4.0 — training only, never its test split), OPUS/CC-BY
-  sources per the existing plan doc. Never FLORES or MENYO test data.
-- Every record carries source, license, and register fields, so a
-  commercial-clean subset (no NC-tainted records) can be filtered at any
-  time.
-- The graded sample from Stage 1 becomes the held-out test set. It is
-  never trained on.
+### Stage 3 — Data assembly — DONE 2026-11-08 (see STAGE3.md)
+- Assembled by `stage3_assemble.py`: train 305,981 / dev 6,236 /
+  heldout 4,000, every record carrying source, licence and register
+  fields. Manifest: `stage3-manifest-2026-11-08.json`.
+- **MENYO-20k is excluded, in every split.** Daniel ruled 2026-11-08
+  that this build is commercial-first, and MENYO's rechecked terms are
+  CC BY-NC 4.0 — commercial use prohibited, inherited from its TED/JW
+  sources. The corpus trains clean without it (Tatoeba CC BY +
+  project-owned generated packs). Never FLORES or MENYO test data
+  either.
+- The graded sample from Stage 1 is the held-out test set (the whole
+  pilot lineage, 4,000 records). It is never trained on — verified:
+  the pilot sources are disjoint from every training tranche, and zero
+  graded lines leak into train/dev.
 
 ### Stage 4 — RunPod training session (Daniel funds it; ~$100–200)
 One deliberate session on an H100-class pod, after Stages 1–3 land:
@@ -263,3 +268,4 @@ One deliberate session on an H100-class pod, after Stages 1–3 land:
 - **Cost.** Pilot $4.79 (GPT-5.5). Bulk Astra: 4,683,897 output tokens; estimated $211–$281 against the $283.10 Azure trial credit (expires 2026-11-02) — estimate only; actual charges post to Cost Management with an 8–24h lag and will replace this figure when available.
 - **Operations note.** A VM reboot on 2026-10-23 01:24 ADT killed both Azure chains mid-run; the resumable runners restarted losslessly and completed 04:40 ADT.
 - **Archives (hash-verified).** Pilot outputs in cloud folder `pigin-corpus-pilot-2026-10-22`; merged bulk files (8: claude_/astra_ × {yoruba, naija} × {general, packs}) in `pigin-corpus-bulk-2026-10-23` — each on Google Drive, Box, and Dropbox.
+- **Tranche 2 (found 2026-11-08; unrecorded when it ran).** A further dual-teacher run, Naija only: 55,391 new sources (another ~40,000 Tatoeba + 15,400 `pack2-*` lines in new pack types, e.g. banking), 110,782 records, zero overlap with bulk, archived in Drive folder `pigin-corpus-tranche2-2026-10-23`. **True corpus total: 312,208 records** (bulk 201,426 + tranche2 110,782; 316,208 including the pilot lineage). Naija is the larger target: ~105,750 sources vs Yoruba's ~50,360.
