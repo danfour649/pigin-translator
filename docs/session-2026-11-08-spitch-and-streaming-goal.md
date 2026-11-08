@@ -39,20 +39,55 @@ sequential.
 
 ### What "our own model and voice" would have to mean here
 
-- Translation: this extends the existing fine-tune direction in
-  `docs/yoruba-translation-plan.md` (fine-tune an NLLB-class model on
-  everyday pairs Folasade accepts; do not train from scratch). All the
-  licence limits recorded there still apply — MENYO-20k and NLLB weights
-  are CC-BY-NC, JW300 and the copyrighted Bible editions are out — and
-  the pre-download check on whether a public site may use a CC-BY-NC
-  resource is **still not done**. A self-hosted model would additionally
-  remove the per-call latency and the vendor dependency below.
-- Voice: no work has started and no approach has been chosen. Any route
-  (fine-tuning an open TTS base, or training on recorded speech) needs,
-  before anything is recorded: a licence check on base model and data,
-  and explicit consent and usage terms for the speaker whose voice is
-  used. Spitch's Sade remains the quality bar and the benchmark, and
-  Spitch remains the fallback while it works.
+- Translation: **we are not starting from scratch — the data asset
+  already exists.** The corpus project (see `corpus/README.md`) banked
+  **201,426 English → {Yorùbá, Naija} records** on 2026-10-23: two
+  teachers (GPT-6 Astra on Azure, and Muse) × 50,360 source lines each
+  (40,000 Tatoeba + 10,360 generated pack lines), generated against the
+  Azure trial credit (~$283; Daniel recalls it as ~$200 of free credit —
+  the README's estimate stands until Azure's lagged billing replaces
+  it), archived hash-verified to Drive, Box, and Dropbox. What has
+  **not** happened is the training itself: Stage 4 in the corpus plan —
+  one funded RunPod session, full fine-tune of MADLAD-400 7B
+  (Apache 2.0), NLLB-200 as evaluation yardstick only, preference pass
+  toward Folasade's accepted versions, fallback a distilled 3B / LoRA
+  on the home RTX 4060. The challenge is that training-and-serving
+  step, not data creation. The licence discipline in
+  `docs/yoruba-translation-plan.md` still binds (MENYO-20k CC-BY-NC
+  train-only, no MENYO/FLORES test data in training, per-record licence
+  fields so an NC-clean subset can be filtered). A self-hosted model
+  would additionally remove the per-call latency and the vendor
+  dependency below, and is a prerequisite for streaming: a rented,
+  ~6 s-per-call, request/response API cannot be the middle of a
+  real-time pipeline.
+- Voice: no work has started, no approach has been chosen, and unlike
+  translation there is no banked asset — this is the genuinely
+  from-zero strand. The obvious raw material is recording Folasade
+  herself: she is the app's reviewer, a native speaker, and already the
+  human quality gate for the text side. Before anything is recorded:
+  explicit consent and usage terms for her voice (it is her voice, and
+  a trained model of it is a durable artifact, not a session file), a
+  licence check on any base model, and a recording protocol (script
+  coverage of Yorùbá phonemes and tone contours, quiet-room takes,
+  consistent mic) sized from the corpus sentences we already own —
+  the Yorùbá side of the corpus doubles as the recording script.
+  **Defect that proves the headroom (observed 2026-11-08):** Spitch's
+  Sade voice mispronounces the name *Folasade* itself — a hard English
+  "Sade" instead of the natural Ṣade ("shade": the Ṣ is /ʃ/). The
+  vendor's own flagship-named voice gets the app's central person's
+  name wrong. A voice trained on Folasade would, at minimum, say
+  Folasade's name the way Folasade says it. First cheap experiment
+  before any recording: an A/B of the undiacritized spelling
+  ("Folasade") against the fully marked spelling ("Fọláṣade") through
+  the current speak route, judged by Folasade — if orthography alone
+  fixes it, that is a pipeline fix, not a voice programme; if it does
+  not, the case for an own voice is stronger. (The A/B pair was
+  generated the same day as this addendum; her verdict is pending.)
+  Spitch's Sade remains the quality bar and the benchmark, and Spitch
+  remains the fallback while it works — the corpus findings already
+  recorded the split: Folasade judged Muse's *translation* more
+  accurate and Astra-via-Spitch's *pronunciation* better, which is
+  exactly the gap an own voice would have to close.
 - Evaluation stays human: a held-out set graded by Folasade, per the
   existing plan. Latency gets measured the same way this session measured
   it — off the real service, not off estimates.
