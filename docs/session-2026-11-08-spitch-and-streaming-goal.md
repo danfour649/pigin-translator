@@ -90,8 +90,15 @@ sequential.
   the name, which strengthens the own-voice case below. A third probe
   (C: the deliberate misspelling "Fọláshade", using the English "sh"
   digraph to force /ʃ/) was generated the same day to test whether a
-  pronunciation-respelling patch is viable as an interim fix; verdict
-  pending.)
+  pronunciation-respelling patch is viable as an interim fix.
+  **Daniel's verdict on C: it comes out "Fola-shed"** — the respelling
+  buys the "sh" and breaks the ending instead. Series closed: no
+  spelling input fixes the name. A (plain) has a hard S; B (proper
+  diacritics) is closest and is what the pipeline should send; C
+  (respelling) trades one error for another and is not a viable patch.
+  Interim position: always feed fully diacritized text, accept the
+  name defect, and treat it as a standing item on the defect list the
+  own-voice work has to beat.)
   Spitch's Sade remains the quality bar and the benchmark, and Spitch
   remains the fallback while it works — the corpus findings already
   recorded the split: Folasade judged Muse's *translation* more
