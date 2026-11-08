@@ -96,7 +96,13 @@ sequential.
   followed Daniel's own spellings: D ("Folashaaede") — Daniel: "not
   quite it"; and **E ("Folashaaade") — Daniel: "sounds good to me"**,
   with Folasade's confirming judgement still to come (she is the
-  native-speaker gate; Daniel is taking it to her). Scorecard: A
+  native-speaker gate; Daniel is taking it to her). **Folasade's
+  verdict on E, same day: pretty good — but there is a pause between
+  "Fola" and "Shaaade"; the name should be spoken quicker and more
+  together, as one word.** The triple-a buys the sound at the cost of
+  a word-break inside the name. Two tighter probes were generated in
+  response: F ("Folashaade", two a's) and G ("Folashade", the plain
+  English "shade" spelling); verdicts pending. Scorecard: A
   (plain) has a hard S; B (proper diacritics) is closest of the honest
   spellings; C ("Fọláshade") trades one error for another; D is close
   but off; E lands, on Daniel's ear. If Folasade confirms E, the
