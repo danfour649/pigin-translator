@@ -1,0 +1,53 @@
+{
+  "stage": 3,
+  "inputs": [
+    "data/bulk/astra_naija_general.jsonl",
+    "data/bulk/astra_naija_packs.jsonl",
+    "data/bulk/astra_yoruba_general.jsonl",
+    "data/bulk/astra_yoruba_packs.jsonl",
+    "data/bulk/claude_naija_general.jsonl",
+    "data/bulk/claude_naija_packs.jsonl",
+    "data/bulk/claude_yoruba_general.jsonl",
+    "data/bulk/claude_yoruba_packs.jsonl",
+    "data/pilot/pilot_naija.jsonl",
+    "data/pilot/pilot_yoruba.jsonl",
+    "data/pilot/pilot_yoruba_astra.jsonl",
+    "data/pilot/pilot_yoruba_muse1000.jsonl",
+    "data/tranche2/astra_naija_general2.jsonl",
+    "data/tranche2/astra_naija_packs2.jsonl",
+    "data/tranche2/claude_naija_general2.jsonl",
+    "data/tranche2/claude_naija_packs2.jsonl"
+  ],
+  "heldout_english_lines_in_packet": 100,
+  "counts": {
+    "read": 316217,
+    "kept_train": 305981,
+    "kept_dev": 6236,
+    "heldout_records": 4000,
+    "kept_heldout": 4000
+  },
+  "per_split_lang_teacher": {
+    "dev|naija|claude": 2124,
+    "dev|naija|gpt-6-astra": 2131,
+    "dev|yoruba|claude": 991,
+    "dev|yoruba|gpt-6-astra": 990,
+    "heldout|naija|gpt-5.5": 1000,
+    "heldout|yoruba|claude": 1000,
+    "heldout|yoruba|gpt-5.5": 1000,
+    "heldout|yoruba|gpt-6-astra": 1000,
+    "train|naija|claude": 103636,
+    "train|naija|gpt-6-astra": 103613,
+    "train|yoruba|claude": 49369,
+    "train|yoruba|gpt-6-astra": 49363
+  },
+  "outputs": [
+    "train.jsonl",
+    "dev.jsonl",
+    "heldout.jsonl"
+  ],
+  "notes": [
+    "Both teachers are kept as separate records; choosing or mixing teachers is a Stage 4 training-config decision.",
+    "MENYO-20k not merged: gated on the licence decision in STAGE3.md.",
+    "Held-out is the pilot lineage (forced), plus a grading-packet English match as a safety net for other tranches."
+  ]
+}

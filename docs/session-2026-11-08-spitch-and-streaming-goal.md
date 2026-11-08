@@ -136,6 +136,39 @@ sequential.
 - The still-unanswered terms question to Spitch (below) matters more, not
   less, while the app is public and free on a rented API.
 
+## The pathway, restated (Daniel's recap, 2026-11-08)
+
+For the avoidance of doubt, the whole route in one place — RunPod and
+the home 4060 do different jobs:
+
+- **Done:** Stages 0–2 (pilot, Folasade quality gate, bulk corpus —
+  201,426 records banked).
+- **Stage 3 — Data assembly:** no GPU required. Merge the synthetic
+  corpus with licensed human gold (MENYO train only, gated on the
+  licence check), per-record source/licence/register fields, and the
+  graded sample locked away as the held-out test set.
+- **Stage 4 — Training is the RunPod step:** one funded H100-class
+  session (~$100–200), full fine-tune of MADLAD-400 7B, preference pass
+  toward Folasade's accepted versions, corpus reranking. Because it is
+  cloud, **fola4-1 being tied up does not block it.**
+- **The RTX 4060 (fola4-1) has two secondary roles:** fallback trainer
+  (distilled 3B / LoRA, hour-scale, free) if RunPod disappoints, and
+  the long-term **serving host** (Stage 6: quantized checkpoint as a
+  small API). Both can wait until the machine is free.
+- **Stage 5 — Evaluation** sits between training and serving: held-out
+  grades + chrF/BLEU against the GPT baseline, ship only on matching or
+  beating it on the everyday register.
+- **Voice is a parallel from-zero strand:** consent and recording
+  protocol first (no GPU), its own training job later, evaluated
+  against Sade — starting with the name ladder in this document.
+- **Streaming sits on top of all of it:** only possible once model and
+  voice are self-hosted; a rented ~6 s request/response API cannot be
+  its middle. Its service would also live on fola4-1, later.
+
+Short version: **RunPod trains it, the 4060 serves it (and is the
+fallback trainer), Folasade grades and voices it, and Stage 3 — the
+next step — needs no GPU at all.**
+
 ## Session findings: Spitch, checked 2026-11-08
 
 ### Account and balance
