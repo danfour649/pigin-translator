@@ -76,18 +76,40 @@ the assembly; they are reproducible from the archives + this script.
 When fola4-1 frees up, its `~/pigin-corpus-archive/` mirror is the
 natural durable home for a copy.
 
-## Still open
+## Licence position — DECIDED 2026-11-08: build commercial-first
 
-1. **MENYO-20k merge — gated on Daniel's licence call.** The plan says
-   to check first whether the public pigin site can use a CC BY-NC
-   resource, because the call decides whether MENYO records need
-   NC-tagging and exclusion from any commercial-clean subset (the
-   assembler already tags every record's licence, so MENYO records
-   would carry `CC BY-NC 4.0` and stay filterable). MENYO train split
-   only; its test split and FLORES dev/test are never training data.
-   Nothing about the synthetic assembly above waits on this.
-2. **Teacher choice/mixing for Stage 4** (Astra-only, Claude-only, or
+**Daniel's ruling: everything in this build is made with commercial
+use in mind.** Any input whose licence forbids commercial use is out
+of the training data, however good it is.
+
+**MENYO-20k terms, rechecked 2026-11-08 against the primary sources**
+(the dataset card at `UdS-LSV/menyo20k_mt` on Hugging Face, the
+Adelani et al. 2021 paper, and the LICENSE in
+`github.com/uds-lsv/menyo-20k_MT`):
+
+- The dataset is licensed **CC BY-NC 4.0** — attribution required,
+  **commercial use prohibited**. There are no separate terms of use
+  beyond that licence.
+- The card states the reason plainly: "The dataset is open but for
+  non-commercial use because some data sources like Ted talks and JW
+  news require permission for commercial use." The NC restriction is
+  inherited from MENYO's own sources, so it cannot be cured by
+  attribution or by using only part of the dataset.
+- Splits: 20,100 pairs — 10,070 train / 3,397 dev / 6,633 test.
+
+**Consequence: MENYO is NOT merged, in any split, into the training
+data.** Under the commercial-first ruling the conservative reading
+also excludes it from the shipped pipeline entirely; its dev/test
+splits remain, at most, an external research yardstick wholly separate
+from the commercial artifact (the same posture the plan already takes
+toward NLLB-200, whose weights are likewise CC BY-NC). The synthetic
+corpus needs no MENYO: Tatoeba sources are CC BY 2.0 FR (commercial,
+with attribution) and the generated packs are project-owned, so the
+assembled 305,981 training records are commercially clean.
+
+## Still open
+1. **Teacher choice/mixing for Stage 4** (Astra-only, Claude-only, or
    both as multi-reference) — a training-config decision, deliberately
    not baked into the data.
-3. **README totals** in `corpus/README.md` predate tranche2; updating
+2. **README totals** in `corpus/README.md` predate tranche2; updating
    them is a small follow-up edit.

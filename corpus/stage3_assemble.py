@@ -34,10 +34,10 @@ Rules:
   * Records with an empty translation or unparseable JSON are dropped
     and counted in the manifest.
 
-MENYO-20k is NOT merged here yet: it is gated on the licence decision
-recorded in STAGE3.md. If a MENYO file is later dropped into
-corpus/data/menyo/ with the same raw schema, rerunning this script
-picks it up like any other tranche.
+MENYO-20k is deliberately NOT merged: Daniel ruled 2026-11-08 that
+this build is commercial-first, and MENYO's terms rechecked that day
+are CC BY-NC 4.0 — commercial use prohibited (see STAGE3.md). Do not
+add it as a tranche.
 
 Usage: python3 corpus/stage3_assemble.py
 """
@@ -170,7 +170,7 @@ def main() -> int:
         "outputs": ["train.jsonl", "dev.jsonl", "heldout.jsonl"],
         "notes": [
             "Both teachers are kept as separate records; choosing or mixing teachers is a Stage 4 training-config decision.",
-            "MENYO-20k not merged: gated on the licence decision in STAGE3.md.",
+            "MENYO-20k excluded by design: CC BY-NC 4.0, and this build is commercial-first (decision 2026-11-08, STAGE3.md).",
             "Held-out is the pilot lineage (forced), plus a grading-packet English match as a safety net for other tranches.",
         ],
     }
