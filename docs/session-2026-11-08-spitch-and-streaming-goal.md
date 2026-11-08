@@ -82,7 +82,16 @@ sequential.
   the current speak route, judged by Folasade — if orthography alone
   fixes it, that is a pipeline fix, not a voice programme; if it does
   not, the case for an own voice is stronger. (The A/B pair was
-  generated the same day as this addendum; her verdict is pending.)
+  generated the same day as this addendum. **Daniel's verdict, same
+  day: both are off — the diacritized version (B) is better than the
+  plain spelling (A), but neither produces the Ṣ ("sh") at all.**
+  Orthography helps and should be fed anyway — the pipeline should
+  never send undiacritized Yorùbá to the voice — but it does not fix
+  the name, which strengthens the own-voice case below. A third probe
+  (C: the deliberate misspelling "Fọláshade", using the English "sh"
+  digraph to force /ʃ/) was generated the same day to test whether a
+  pronunciation-respelling patch is viable as an interim fix; verdict
+  pending.)
   Spitch's Sade remains the quality bar and the benchmark, and Spitch
   remains the fallback while it works — the corpus findings already
   recorded the split: Folasade judged Muse's *translation* more
