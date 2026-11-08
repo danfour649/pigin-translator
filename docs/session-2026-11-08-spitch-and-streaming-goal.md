@@ -92,13 +92,21 @@ sequential.
   digraph to force /ʃ/) was generated the same day to test whether a
   pronunciation-respelling patch is viable as an interim fix.
   **Daniel's verdict on C: it comes out "Fola-shed"** — the respelling
-  buys the "sh" and breaks the ending instead. Series closed: no
-  spelling input fixes the name. A (plain) has a hard S; B (proper
-  diacritics) is closest and is what the pipeline should send; C
-  (respelling) trades one error for another and is not a viable patch.
-  Interim position: always feed fully diacritized text, accept the
-  name defect, and treat it as a standing item on the defect list the
-  own-voice work has to beat.)
+  buys the "sh" and breaks the ending instead. Two further probes
+  followed Daniel's own spellings: D ("Folashaaede") — Daniel: "not
+  quite it"; and **E ("Folashaaade") — Daniel: "sounds good to me"**,
+  with Folasade's confirming judgement still to come (she is the
+  native-speaker gate; Daniel is taking it to her). Scorecard: A
+  (plain) has a hard S; B (proper diacritics) is closest of the honest
+  spellings; C ("Fọláshade") trades one error for another; D is close
+  but off; E lands, on Daniel's ear. If Folasade confirms E, the
+  interim patch is a **pronunciation dictionary applied only to
+  TTS-bound text**: rewrite "Folasade / Fọláṣade" → "Folashaaade" in
+  the string sent to the speak endpoint, never in displayed or stored
+  text. Interim position until then: always feed fully diacritized
+  text, and keep the name defect on the standing list the own-voice
+  work has to beat — a respelling that fools the vendor's model is a
+  patch, not a pronunciation the model actually knows.)
   Spitch's Sade remains the quality bar and the benchmark, and Spitch
   remains the fallback while it works — the corpus findings already
   recorded the split: Folasade judged Muse's *translation* more
