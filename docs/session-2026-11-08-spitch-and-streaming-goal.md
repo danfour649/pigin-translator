@@ -106,18 +106,19 @@ sequential.
   "Folashaade" is her current pick of the whole series and the
   standing candidate for the pronunciation dictionary entry, in her
   judgement better than both E and G. (Her word was "better", not
-  "perfect": the entry is adopted as the best available patch, and
-  the name stays on the own-voice defect list regardless.) Scorecard: A
-  (plain) has a hard S; B (proper diacritics) is closest of the honest
-  spellings; C ("Fọláshade") trades one error for another; D is close
-  but off; E lands, on Daniel's ear. If Folasade confirms E, the
-  interim patch is a **pronunciation dictionary applied only to
-  TTS-bound text**: rewrite "Folasade / Fọláṣade" → "Folashaaade" in
-  the string sent to the speak endpoint, never in displayed or stored
-  text. Interim position until then: always feed fully diacritized
-  text, and keep the name defect on the standing list the own-voice
-  work has to beat — a respelling that fools the vendor's model is a
-  patch, not a pronunciation the model actually knows.)
+  "perfect".) Scorecard: A (plain) has a hard S; B (proper diacritics)
+  is closest of the honest spellings; C ("Fọláshade") trades one error
+  for another; D is close but off; E lands on Daniel's ear but breaks
+  the name in two on Folasade's; F is the best of the series.
+  **Decision (Daniel, 2026-11-08): do NOT wire any respelling into the
+  speak route.** This probe series was practice for the own
+  model/voice build, not a patch to ship. Its durable value is as
+  evaluation material for that build: a graded ladder of attempts at
+  one hard name, with the native speaker's reasons at each rung. The
+  own voice's bar is the honest version of the test — say "Fọláṣade",
+  spelled correctly, as one word, with the Ṣ — no dictionary tricks.
+  Interim position: always feed fully diacritized text; the defect
+  stands, documented, until our own voice beats it.)
   Spitch's Sade remains the quality bar and the benchmark, and Spitch
   remains the fallback while it works — the corpus findings already
   recorded the split: Folasade judged Muse's *translation* more
