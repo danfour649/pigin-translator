@@ -102,7 +102,12 @@ sequential.
   together, as one word.** The triple-a buys the sound at the cost of
   a word-break inside the name. Two tighter probes were generated in
   response: F ("Folashaade", two a's) and G ("Folashade", the plain
-  English "shade" spelling); verdicts pending. Scorecard: A
+  English "shade" spelling). **Folasade's verdict: F is better** —
+  "Folashaade" is her current pick of the whole series and the
+  standing candidate for the pronunciation dictionary entry, in her
+  judgement better than both E and G. (Her word was "better", not
+  "perfect": the entry is adopted as the best available patch, and
+  the name stays on the own-voice defect list regardless.) Scorecard: A
   (plain) has a hard S; B (proper diacritics) is closest of the honest
   spellings; C ("Fọláshade") trades one error for another; D is close
   but off; E lands, on Daniel's ear. If Folasade confirms E, the
