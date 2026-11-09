@@ -5,6 +5,12 @@ Status: **prepped 2026-11-08, not yet run.** Stage 3 is complete
 `stage4_eval.py` are the whole preparation. What is *not* in this
 document is authorization: the run starts on Daniel's go, which also
 confirms the one open config value (`teacher_mode`, default `both`).
+**Why an H100 at all — and why the spend is safe — is recorded in
+`HARDWARE-AND-H100-DECISION.md`**: the home fleet is fully assessed
+there (including fola4's 780M shared-memory evidence from Daniel's
+Krea-2 runs), with the de-risk ladder Daniel asked for: he is willing
+to spend the $200 *if we know it will work*, and the ladder is how we
+know before the money is committed.
 
 ## Shape of the run
 
