@@ -100,6 +100,11 @@ them are reasons the ladder exists.
 
 ## Teacher-output terms — the "GPT training" gate, verified 2026-11-08
 
+*(Full extended findings — verbatim clauses for both providers, the
+Azure flow-through, enforcement precedent, per-teacher corpus
+exposure, and the four postures — live in `TEACHER-TERMS.md`. The
+summary below is the short form.)*
+
 The corpus plan's open check ("Azure OpenAI terms on training
 downstream models from GPT outputs") is a real clause, not boilerplate
 anxiety:

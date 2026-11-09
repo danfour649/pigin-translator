@@ -245,8 +245,13 @@ One deliberate session on an H100-class pod, after Stages 1–3 land:
   license and distribution decision.
 
 ### Open checks
-- Azure OpenAI terms on training downstream models from GPT outputs —
-  verify before any commercial use of the synthetic data.
+- ~~Azure OpenAI terms on training downstream models from GPT
+  outputs~~ — **CHECKED 2026-11-08/09: the restriction is real, for
+  both teachers.** OpenAI Services Agreement §3.3(e) (and Microsoft's
+  Azure flow-through) and Anthropic Commercial Terms §D.4 + Usage
+  Policy both bar using outputs to develop competing models. Full
+  findings and the four postures: `corpus/TEACHER-TERMS.md`. This
+  gates commercial *shipping* of a trained checkpoint, not training.
 - Per-record license tracking (Stage 3) is what keeps the NC question
   answerable later; do not merge sources without it.
 
