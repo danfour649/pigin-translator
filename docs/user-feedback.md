@@ -31,3 +31,19 @@ playback applies the rate with pitch preserved (re-applied on the
 playing event; adjustable mid-playback); the browser-voice fallback
 multiplies its base rate by the same speed. Applies to Speak and
 Replay. Lillian has not yet been told — a reply is Daniels to send.
+
+**Requirement clarified by Daniel, 2026-11-09:** the speed toggle
+works, but it is not what she meant. Lillian is learning to speak
+Yorùbá: she wants to slow down *between words*, and to **rewind
+and loop** the speech audio to practise against it.
+
+**SHIPPED v2, same day** (commit c0877d5, production verified): a
+per-card **Learn** panel —
+- Play/Pause, seek bar with time readout, **Back 5s** rewind, and a
+  **Loop** toggle for the sentence recording (previously the audio
+  played on a hidden element with no user controls at all);
+- **Word by word**: each word of the translation spoken separately
+  with a real pause between words (650 ms at 1×, widening as the
+  speed slows), the current word highlighted in the card; Loop
+  repeats the whole word sequence; word clips use the existing
+  cache-first speak fetch, so repeats are free.
