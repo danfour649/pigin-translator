@@ -33,6 +33,9 @@ import {
   audioSessionOf,
   browserSpeechCard,
   cloudSpeakCard,
+  PLAYBACK_SPEEDS,
+  type PlaybackSpeed,
+  applyPlaybackSpeed,
   playCloudMp3,
   replayClip,
   setAudioSessionType,
@@ -110,6 +113,7 @@ export function Translator() {
   const [openIds, setOpenIds] = useState<string[]>([]);
   const [inputError, setInputError] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
+  const [playbackSpeed, setPlaybackSpeed] = useState<PlaybackSpeed>(1);
   const [speaking, setSpeaking] = useState<SpeechTarget | null>(null);
   const [preparing, setPreparing] = useState<SpeechTarget | null>(null);
   const [ready, setReady] = useState<ReadyState | null>(null);
@@ -516,7 +520,7 @@ export function Translator() {
       play: (clip) => {
         const active = audioRef.current;
         if (!active || speakGen.current !== generation) return Promise.resolve(false);
-        return playCloudMp3(active, clip.url);
+        return playCloudMp3(active, clip.url, undefined, playbackSpeed);
       },
     });
 
@@ -713,7 +717,7 @@ export function Translator() {
     } else {
       utterance.lang = spokenLanguage === "yoruba" ? "yo-NG" : "en-NG";
     }
-    utterance.rate = 0.95;
+    utterance.rate = 0.95 * playbackSpeed;
 
     let speechPhase: "wait" | "started" | "failed" = "wait";
     const apply = (event: "start" | "end" | "error" | "timeout") => {
@@ -905,6 +909,43 @@ export function Translator() {
           <p className="mt-1.5 text-sm text-muted">
             {translationModelById(modelId).note}{" "}
             <span className="font-mono text-xs">{modelId}</span>
+          </p>
+        </div>
+
+        <div className="mt-5">
+          <span id="speech-speed-label" className="text-sm font-semibold">
+            Speech speed
+          </span>
+          <div
+            role="group"
+            aria-labelledby="speech-speed-label"
+            className="mt-2 flex gap-2"
+          >
+            {PLAYBACK_SPEEDS.map((speed) => (
+              <button
+                key={speed}
+                type="button"
+                aria-pressed={playbackSpeed === speed}
+                onClick={() => {
+                  setPlaybackSpeed(speed);
+                  const active = audioRef.current;
+                  if (active && !active.paused) {
+                    applyPlaybackSpeed(active, speed);
+                  }
+                }}
+                className={
+                  playbackSpeed === speed
+                    ? "h-10 flex-1 rounded-full border border-green bg-green px-3 text-sm font-semibold text-card focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green"
+                    : "h-10 flex-1 rounded-full border border-line bg-white px-3 text-sm text-ink hover:border-green focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green"
+                }
+              >
+                {speed}×
+              </button>
+            ))}
+          </div>
+          <p className="mt-1.5 text-sm text-muted">
+            Slower speeds make the pronunciation easier to hear. Applies to
+            Speak and Replay.
           </p>
         </div>
 

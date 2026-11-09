@@ -19,6 +19,30 @@ export const BROWSER_PLAYBACK_FAILED =
 /** How long to wait for browser speech to fire start before admitting it did not. */
 export const BROWSER_SPEECH_START_MS = 3000;
 
+/**
+ * Playback speeds a learner can pick (user request, 2026-11-08: slow the
+ * speech down to hear the pronunciation). Applied to the audio element's
+ * playbackRate with pitch preserved, so a slowed voice stays the same
+ * voice, just slower — no provider parameter or re-synthesis needed.
+ */
+export const PLAYBACK_SPEEDS = [1, 0.75, 0.5] as const;
+
+export type PlaybackSpeed = (typeof PLAYBACK_SPEEDS)[number];
+
+export function applyPlaybackSpeed(
+  audio: HTMLAudioElement,
+  speed: PlaybackSpeed,
+): void {
+  audio.playbackRate = speed;
+  audio.preservesPitch = true;
+  const vendor = audio as HTMLAudioElement & {
+    webkitPreservesPitch?: boolean;
+    mozPreservesPitch?: boolean;
+  };
+  vendor.webkitPreservesPitch = true;
+  vendor.mozPreservesPitch = true;
+}
+
 export type AudioSessionLike = { type: string };
 
 export type PlaybackSnapshot = {
@@ -229,6 +253,7 @@ export function playCloudMp3(
   audio: HTMLAudioElement,
   url: string,
   timeoutMs = 4000,
+  speed: PlaybackSpeed = 1,
 ): Promise<boolean> {
   setAudioSessionType(audioSessionOf(navigator), PLAYBACK_SESSION);
   audio.loop = false;
@@ -236,6 +261,7 @@ export function playCloudMp3(
   audio.volume = 1;
   audio.pause();
   audio.src = url;
+  applyPlaybackSpeed(audio, speed);
 
   return new Promise((resolve) => {
     let settled = false;
@@ -248,6 +274,8 @@ export function playCloudMp3(
       resolve(value);
     };
     const onPlaying = () => {
+      // Some browsers reset playbackRate when a new source loads; re-apply.
+      applyPlaybackSpeed(audio, speed);
       if (playbackHasStarted(snapshotSpeaker(audio))) finish(true);
     };
     const onError = () => finish(false);
