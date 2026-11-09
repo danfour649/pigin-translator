@@ -23,3 +23,11 @@ exposes one, would sound better but is not required for v1 of the
 feature. Ties directly to the apps learning use case and to the
 own-voice strand: slow, clear articulation is also the obvious
 training-data register for learner-facing speech.
+
+**SHIPPED 2026-11-09** (commit 8b124c7, Vercel production verified
+live the same morning): a "Speech speed" segmented control
+(1× / 0.75× / 0.5×) beside the translation model picker. Cloud
+playback applies the rate with pitch preserved (re-applied on the
+playing event; adjustable mid-playback); the browser-voice fallback
+multiplies its base rate by the same speed. Applies to Speak and
+Replay. Lillian has not yet been told — a reply is Daniels to send.
