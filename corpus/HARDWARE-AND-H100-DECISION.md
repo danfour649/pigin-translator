@@ -92,10 +92,43 @@ each rung is proven before the next is paid for:
    $200 hard cap with RunPod billing alerts set (runbook pre-flight).
 
 What could still surprise us at rung 3/4, stated plainly: throughput
-slower than the 6–11 h estimate (costs time, capped money), a ROCm-
-free CUDA environment behaving differently than local rehearsal (that
-is what the smoke is *for*), and the open Azure-terms check on
-training from GPT outputs (a legal thread, flagged in
-`corpus/README.md` — it gates commercial *use* of the checkpoint, not
-the run). None of these is a reason to train the keeper on the wrong
-hardware; all of them are reasons the ladder exists.
+slower than the 6–11 h estimate (costs time, capped money), a CUDA
+environment behaving differently than local rehearsal (that is what
+the smoke is *for*), and the teacher-output terms below. None of
+these is a reason to train the keeper on the wrong hardware; all of
+them are reasons the ladder exists.
+
+## Teacher-output terms — the "GPT training" gate, verified 2026-11-08
+
+The corpus plan's open check ("Azure OpenAI terms on training
+downstream models from GPT outputs") is a real clause, not boilerplate
+anxiety:
+
+- **OpenAI Services Agreement §3.3(e)** (the API/business terms;
+  Azure OpenAI usage sits under Microsoft's equivalent framework):
+  the customer will not "use Output to develop artificial
+  intelligence models that compete with OpenAI's products and
+  services," except for Permitted Exceptions (internal
+  classifiers/embeddings; fine-tuning OpenAI's own models). The
+  consumer Terms of Use carry the same line in shorter form.
+- **Anthropic's terms carry an analogous restriction** on using
+  outputs to train competing models / build competing services
+  without authorization. **Both of this corpus's teachers are
+  therefore restricted the same way** — the Claude half is not a
+  loophole around the Astra half.
+- What the clause does **not** restrict: owning the outputs (they are
+  assigned to the customer), selling products that *use* outputs, or
+  running the training itself as research. The restriction bites on
+  **developing a competing model** — which is precisely what a
+  commercial EN→Yorùbá/Naija model arguably is, since GPT itself
+  translates these languages. "Competes" has no settled narrow
+  reading; a niche translator is the grey zone, not a clear pass.
+- Postures available, in the repo's commercial-first frame: (a) train
+  and accept the contract risk with eyes open — industry-common, but
+  it is a risk, and it attaches to the *checkpoint's* commercial use,
+  not to the run; (b) seek permission / enterprise terms; (c) keep
+  the synthetic corpus for research checkpoints and build the
+  *commercial* checkpoint only from unrestricted data (the assembler
+  tags every record's teacher, so the split is mechanical); (d) one
+  day, re-teacher with an open-weights model whose licence permits
+  it. This is Daniel's call, and it gates shipping, not Stage 4.
