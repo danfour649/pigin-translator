@@ -291,6 +291,55 @@ export function playCloudMp3(
   });
 }
 
+/** Words of a spoken text, in order — the units Learn mode steps through. */
+export function splitWords(text: string): string[] {
+  return text.split(/\s+/).filter((word) => word.length > 0);
+}
+
+/**
+ * Play a clip on the shared element and resolve when it ENDS (true), or
+ * when playback errors or never starts (false). Learn mode chains these
+ * with a pause between words, which playCloudMp3 (start-only) cannot do.
+ */
+export function playClipToEnd(
+  audio: HTMLAudioElement,
+  url: string,
+  speed: PlaybackSpeed = 1,
+  startTimeoutMs = 5000,
+): Promise<boolean> {
+  setAudioSessionType(audioSessionOf(navigator), PLAYBACK_SESSION);
+  audio.loop = false;
+  audio.muted = false;
+  audio.volume = 1;
+  audio.pause();
+  audio.src = url;
+  applyPlaybackSpeed(audio, speed);
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (value: boolean) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      audio.removeEventListener("ended", onEnded);
+      audio.removeEventListener("error", onError);
+      resolve(value);
+    };
+    const onEnded = () => finish(true);
+    const onError = () => finish(false);
+    const timer = window.setTimeout(() => {
+      // No end event within reason means it never really started.
+      if (audio.paused || audio.ended) finish(false);
+    }, startTimeoutMs + 60000);
+    audio.addEventListener("ended", onEnded);
+    audio.addEventListener("error", onError);
+    audio.play().then(
+      () => applyPlaybackSpeed(audio, speed),
+      () => finish(false),
+    );
+  });
+}
+
 function placeSpeaker(audio: HTMLAudioElement, parent: ParentNode): void {
   audio.preload = "auto";
   // Chrome hides audio:not([controls]) with display:none, and iOS will not

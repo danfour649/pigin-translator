@@ -36,8 +36,10 @@ import {
   PLAYBACK_SPEEDS,
   type PlaybackSpeed,
   applyPlaybackSpeed,
+  playClipToEnd,
   playCloudMp3,
   replayClip,
+  splitWords,
   setAudioSessionType,
   stopSpeaker,
 } from "@/lib/speak-playback";
@@ -49,7 +51,13 @@ import {
   shareSpokenAudio,
 } from "@/lib/spoken-audio";
 import { getCachedSpeakClip, storeSpeakClip } from "@/lib/speak-cache";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import {
+  useEffect,
+  useReducer,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 
 type Phase = "idle" | "listening" | "translating";
 type SpeechVia = "speak" | "replay";
@@ -114,6 +122,19 @@ export function Translator() {
   const [inputError, setInputError] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
   const [playbackSpeed, setPlaybackSpeed] = useState<PlaybackSpeed>(1);
+  const [learnTarget, setLearnTarget] = useState<{
+    entryId: string;
+    language: LanguageId;
+  } | null>(null);
+  const [learnWord, setLearnWord] = useState<{
+    entryId: string;
+    language: LanguageId;
+    index: number;
+  } | null>(null);
+  const [learnLoop, setLearnLoop] = useState(false);
+  const learnGen = useRef(0);
+  const learnLoopRef = useRef(false);
+  learnLoopRef.current = learnLoop;
   const [speaking, setSpeaking] = useState<SpeechTarget | null>(null);
   const [preparing, setPreparing] = useState<SpeechTarget | null>(null);
   const [ready, setReady] = useState<ReadyState | null>(null);
@@ -777,11 +798,92 @@ export function Translator() {
 
   function stopSpeaking() {
     speakGen.current += 1;
+    learnGen.current += 1;
+    setLearnWord(null);
     clearSpeechWatch(speechWatch);
     haltPlayback(audioRef);
     setAudioSessionType(audioSessionOf(navigator), IDLE_SESSION);
     setSpeaking(null);
     setPreparing(null);
+  }
+
+  function ensureSpeaker(): HTMLAudioElement {
+    const speaker = audioRef.current ?? document.createElement("audio");
+    audioRef.current = speaker;
+    if (!speaker.parentNode) armSpeaker(speaker, document.body);
+    return speaker;
+  }
+
+  /** Load a saved clip into the shared element and play it, at the chosen speed. */
+  function loadAndPlayClip(url: string) {
+    const speaker = ensureSpeaker();
+    speaker.loop = learnLoopRef.current;
+    if (speaker.src !== url) {
+      speaker.pause();
+      speaker.src = url;
+    }
+    applyPlaybackSpeed(speaker, playbackSpeed);
+    void speaker.play().catch(() => {});
+  }
+
+  function onLearn(entryId: string, language: LanguageId) {
+    if (learnTarget?.entryId === entryId && learnTarget?.language === language) {
+      stopSpeaking();
+      setLearnTarget(null);
+      return;
+    }
+    setLearnTarget({ entryId, language });
+    const saved = cloudAudioRef.current[entryId]?.[language];
+    if (saved) {
+      stopSpeaking();
+      setLearnTarget({ entryId, language });
+      loadAndPlayClip(saved.url);
+    } else {
+      void speakEntry(entryId, language, "speak");
+    }
+  }
+
+  /**
+   * Learn mode, word by word: speak each word of the translation on its
+   * own, with a real pause between words, highlighting the word being
+   * spoken. Word clips come through the same cache-first fetch as whole
+   * sentences, so repeats cost no provider call. The gap widens as the
+   * chosen speed slows. Loop repeats the whole sentence until stopped.
+   */
+  async function learnWords(entryId: string, language: LanguageId) {
+    const entry = historyRef.current.find((item) => item.id === entryId);
+    const text = entry?.sides[language].text;
+    if (!entry || entry.status !== "ready" || !text) return;
+    const words = splitWords(text);
+    if (words.length === 0) return;
+
+    stopSpeaking();
+    setLearnTarget({ entryId, language });
+    const generation = speakGen.current;
+    const token = ++learnGen.current;
+    const speaker = ensureSpeaker();
+    const gapMs = Math.round(650 / playbackSpeed);
+    const cancelled = () =>
+      learnGen.current !== token || speakGen.current !== generation;
+
+    try {
+      do {
+        for (let index = 0; index < words.length; index += 1) {
+          if (cancelled()) return;
+          const clip = await fetchCloudClip(words[index], language, generation);
+          if (!clip || cancelled()) return;
+          setLearnWord({ entryId, language, index });
+          const played = await playClipToEnd(speaker, clip.url, playbackSpeed);
+          URL.revokeObjectURL(clip.url);
+          if (!played || cancelled()) return;
+          if (index < words.length - 1 || learnLoopRef.current) {
+            await new Promise((resolve) => window.setTimeout(resolve, gapMs));
+          }
+        }
+      } while (learnLoopRef.current && !cancelled());
+    } finally {
+      if (!cancelled()) setLearnWord(null);
+    }
   }
 
   function onDownloadAudio(entryId: string, language: LanguageId) {
@@ -988,6 +1090,14 @@ export function Translator() {
             translating={translating}
             showReplay={false}
             live
+            learnTarget={null}
+            learnWord={null}
+            learnLoop={false}
+            getSpeaker={() => audioRef.current}
+            onLoadClip={loadAndPlayClip}
+            onLearn={() => {}}
+            onLearnWords={() => {}}
+            onLoopChange={setLearnLoop}
             onSpeak={() => {}}
             onReplay={() => {}}
             onStop={stopSpeaking}
@@ -1043,6 +1153,14 @@ export function Translator() {
                   translating={translating}
                   showReplay
                   live={index === 0}
+                  learnTarget={learnTarget}
+                  learnWord={learnWord}
+                  learnLoop={learnLoop}
+                  getSpeaker={() => audioRef.current}
+                  onLoadClip={loadAndPlayClip}
+                  onLearn={(language) => onLearn(entry.id, language)}
+                  onLearnWords={(language) => void learnWords(entry.id, language)}
+                  onLoopChange={setLearnLoop}
                   onSpeak={(language) => void speakEntry(entry.id, language, "speak")}
                   onReplay={(language) => void speakEntry(entry.id, language, "replay")}
                   onStop={stopSpeaking}
@@ -1107,6 +1225,14 @@ function LanguageCards({
   translating,
   showReplay,
   live,
+  learnTarget,
+  learnWord,
+  learnLoop,
+  getSpeaker,
+  onLoadClip,
+  onLearn,
+  onLearnWords,
+  onLoopChange,
   onSpeak,
   onReplay,
   onStop,
@@ -1125,6 +1251,14 @@ function LanguageCards({
   translating: boolean;
   showReplay: boolean;
   live: boolean;
+  learnTarget: { entryId: string; language: LanguageId } | null;
+  learnWord: { entryId: string; language: LanguageId; index: number } | null;
+  learnLoop: boolean;
+  getSpeaker: () => HTMLAudioElement | null;
+  onLoadClip: (url: string) => void;
+  onLearn: (language: LanguageId) => void;
+  onLearnWords: (language: LanguageId) => void;
+  onLoopChange: (loop: boolean) => void;
   onSpeak: (language: LanguageId) => void;
   onReplay: (language: LanguageId) => void;
   onStop: () => void;
@@ -1146,6 +1280,12 @@ function LanguageCards({
             : side.model;
         const thisSpeaking = matchesSpeech(speaking, entryId, language);
         const thisPreparing = matchesSpeech(preparing, entryId, language);
+        const learnOpen =
+          learnTarget?.entryId === entryId && learnTarget?.language === language;
+        const activeWord =
+          learnWord?.entryId === entryId && learnWord?.language === language
+            ? learnWord.index
+            : null;
         const canPlay = canSpeak || Boolean(providers[language]);
         const saved = clips[language];
         const canReplay = Boolean(saved) || canPlay;
@@ -1170,7 +1310,20 @@ function LanguageCards({
               lang={item.htmlLang}
               className="mt-3 min-h-24 text-lg leading-relaxed whitespace-pre-wrap"
             >
-              {side.text ? (
+              {side.text && activeWord !== null ? (
+                splitWords(side.text).map((word, index) => (
+                  <span
+                    key={index}
+                    className={
+                      index === activeWord
+                        ? "rounded bg-gold/40 px-0.5 font-semibold"
+                        : undefined
+                    }
+                  >
+                    {word}{" "}
+                  </span>
+                ))
+              ) : side.text ? (
                 side.text
               ) : (
                 <span className="text-muted">
@@ -1243,7 +1396,30 @@ function LanguageCards({
                   Share
                 </button>
               ) : null}
+              <button
+                type="button"
+                onClick={() => onLearn(language)}
+                disabled={!side.text || !canPlay || translating}
+                aria-expanded={learnOpen}
+                aria-label={`Learn ${item.label} pronunciation`}
+                title="Practise: play the recording with controls, or hear it word by word"
+                className="rounded-full border border-line px-4 py-2 text-sm font-semibold hover:bg-paper focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Learn
+              </button>
             </div>
+            {learnOpen ? (
+              <LearnPlayer
+                url={saved?.url ?? null}
+                getSpeaker={getSpeaker}
+                onLoadClip={onLoadClip}
+                loop={learnLoop}
+                onLoopChange={onLoopChange}
+                wordsActive={activeWord !== null}
+                onWords={() => onLearnWords(language)}
+                onStop={onStop}
+              />
+            ) : null}
             {saved ? (
               <p className="mt-3 text-sm text-muted">
                 This MP3 can be attached in WhatsApp or Messages.
@@ -1263,6 +1439,150 @@ function LanguageCards({
           </section>
         );
       })}
+    </div>
+  );
+}
+
+function formatClock(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
+  const whole = Math.floor(seconds);
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
+}
+
+/**
+ * Learn mode player: the controls a learner actually asked for — play and
+ * pause, a seek bar, a 5-second rewind, looping, and a word-by-word pass
+ * that speaks each word separately with pauses between. It drives the
+ * shared page audio element, so it agrees with Speak/Replay about what
+ * is playing, and the Speech speed control applies to everything here.
+ */
+function LearnPlayer({
+  url,
+  getSpeaker,
+  onLoadClip,
+  loop,
+  onLoopChange,
+  wordsActive,
+  onWords,
+  onStop,
+}: {
+  url: string | null;
+  getSpeaker: () => HTMLAudioElement | null;
+  onLoadClip: (url: string) => void;
+  loop: boolean;
+  onLoopChange: (loop: boolean) => void;
+  wordsActive: boolean;
+  onWords: () => void;
+  onStop: () => void;
+}) {
+  const [, tick] = useReducer((count: number) => count + 1, 0);
+  useEffect(() => {
+    const timer = window.setInterval(tick, 250);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const audio = getSpeaker();
+  const loaded = Boolean(audio && url && audio.src === url);
+  const duration = loaded && audio ? audio.duration || 0 : 0;
+  const current = loaded && audio ? audio.currentTime || 0 : 0;
+  const playing = loaded && audio ? !audio.paused && !audio.ended : false;
+
+  const togglePlay = () => {
+    if (!url) return;
+    const speaker = getSpeaker();
+    if (!speaker || speaker.src !== url || speaker.ended) {
+      onLoadClip(url);
+      return;
+    }
+    if (speaker.paused) void speaker.play().catch(() => {});
+    else speaker.pause();
+  };
+
+  return (
+    <div className="mt-4 rounded-2xl border border-line bg-paper p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={togglePlay}
+          disabled={!url}
+          aria-label={playing ? "Pause the recording" : "Play the recording"}
+          className="rounded-full bg-green-ink px-4 py-2 text-sm font-semibold text-card hover:bg-green focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {playing ? "Pause" : "Play"}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            const speaker = getSpeaker();
+            if (speaker && url && speaker.src === url) {
+              speaker.currentTime = Math.max(0, speaker.currentTime - 5);
+            }
+          }}
+          disabled={!loaded}
+          aria-label="Back 5 seconds"
+          className="rounded-full border border-line px-3 py-2 text-sm font-semibold hover:bg-card focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          ⏪ 5s
+        </button>
+        <span className="text-sm tabular-nums text-muted">
+          {formatClock(current)} / {formatClock(duration)}
+        </span>
+        <button
+          type="button"
+          aria-pressed={loop}
+          onClick={() => {
+            const next = !loop;
+            onLoopChange(next);
+            const speaker = getSpeaker();
+            if (speaker && url && speaker.src === url) speaker.loop = next;
+          }}
+          className={
+            loop
+              ? "rounded-full border border-green bg-green px-3 py-2 text-sm font-semibold text-card focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green"
+              : "rounded-full border border-line px-3 py-2 text-sm font-semibold hover:bg-card focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green"
+          }
+        >
+          Loop
+        </button>
+        {wordsActive ? (
+          <button
+            type="button"
+            onClick={onStop}
+            className="rounded-full border border-line px-3 py-2 text-sm font-semibold hover:bg-card focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green"
+          >
+            Stop words
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={onWords}
+            className="rounded-full border border-line px-3 py-2 text-sm font-semibold hover:bg-card focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green"
+          >
+            Word by word
+          </button>
+        )}
+      </div>
+      <input
+        type="range"
+        min={0}
+        max={duration || 0}
+        step={0.1}
+        value={Math.min(current, duration || 0)}
+        disabled={!loaded}
+        aria-label="Seek through the recording"
+        onChange={(event) => {
+          const speaker = getSpeaker();
+          if (speaker && url && speaker.src === url) {
+            speaker.currentTime = Number(event.target.value);
+          }
+        }}
+        className="mt-3 w-full accent-green"
+      />
+      <p className="mt-2 text-sm text-muted">
+        {url
+          ? "Practise with the recording: pause it, rewind, loop it, or hear the sentence word by word with pauses between the words. Speech speed applies here too."
+          : "Press Speak once and the recording will load here with these controls. Word by word works right away — it fetches each word on its own."}
+      </p>
     </div>
   );
 }
